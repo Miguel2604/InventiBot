@@ -35,9 +35,9 @@ export class AuthHandler {
     }
 
     // Create session (non-blocking on failure)
-    if (result.tenant) {
+    if (result.profile) {
       try {
-        await authService.createSession(result.tenant.id, senderId);
+        await authService.createSession(result.profile.id, senderId);
       } catch (e) {
         console.error('Auth session creation failed:', e);
       }

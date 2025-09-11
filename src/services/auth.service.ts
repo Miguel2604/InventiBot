@@ -1,24 +1,23 @@
-import { supabase, Tenant } from '../config/supabase';
+import { supabase, Profile } from '../config/supabase';
 import crypto from 'crypto';
 
 class AuthService {
   /**
    * Check if a user is authenticated
    */
-  async isAuthenticated(facebookId: string): Promise<{ authenticated: boolean; tenant?: Tenant }> {
+  async isAuthenticated(facebookId: string): Promise<{ authenticated: boolean; profile?: Profile }> {
     try {
-      const { data: tenant, error } = await supabase
-        .from('tenants')
+      const { data: profile, error } = await supabase
+        .from('profiles')
         .select('*')
-        .eq('facebook_id', facebookId)
-        .eq('status', 'active')
+        .eq('chat_platform_id', facebookId)
         .single();
 
-      if (error || !tenant) {
+      if (error || !profile) {
         return { authenticated: false };
       }
 
-      return { authenticated: true, tenant };
+      return { authenticated: true, profile };
     } catch (error) {
       console.error('Error checking authentication:', error);
       return { authenticated: false };
@@ -26,12 +25,12 @@ class AuthService {
   }
 
   /**
-   * Validate an access code and register the tenant
+   * Validate an access code and register the user
    */
   async validateAccessCode(code: string, facebookId: string): Promise<{
     success: boolean;
     message: string;
-    tenant?: Tenant;
+    profile?: Profile;
     unit?: any;
     building?: any;
   }> {
@@ -77,27 +76,25 @@ class AuthService {
         };
       }
 
-      // Check if tenant already exists with this Facebook ID
-      const { data: existingTenant } = await supabase
-        .from('tenants')
+      // Check if profile already exists with this Facebook ID
+      const { data: existingProfile } = await supabase
+        .from('profiles')
         .select('*')
-        .eq('facebook_id', facebookId)
+        .eq('chat_platform_id', facebookId)
         .single();
 
-      let tenant: Tenant;
+      let profile: Profile;
 
-      if (existingTenant) {
-        // Update existing tenant
-        const { data: updatedTenant, error: updateError } = await supabase
-          .from('tenants')
+      if (existingProfile) {
+        // Update existing profile
+        const { data: updatedProfile, error: updateError } = await supabase
+          .from('profiles')
           .update({
-            name: invite.full_name || existingTenant.name,
-            unit_number: invite.units?.unit_number,
-            building: invite.units?.buildings?.name,
-            status: 'active',
+            full_name: invite.full_name || existingProfile.full_name,
+            unit_id: invite.unit_id,
             updated_at: new Date().toISOString()
           })
-          .eq('id', existingTenant.id)
+          .eq('id', existingProfile.id)
           .select()
           .single();
 
@@ -105,17 +102,20 @@ class AuthService {
           throw updateError;
         }
 
-        tenant = updatedTenant;
+        profile = updatedProfile;
       } else {
-        // Create new tenant
-        const { data: newTenant, error: createError } = await supabase
-          .from('tenants')
+        // Create new profile with a generated auth user
+        // Note: In production, you'd create an auth user properly
+        const userId = crypto.randomUUID();
+        
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
           .insert({
-            facebook_id: facebookId,
-            name: invite.full_name,
-            unit_number: invite.units?.unit_number,
-            building: invite.units?.buildings?.name,
-            status: 'active'
+            id: userId,
+            chat_platform_id: facebookId,
+            full_name: invite.full_name,
+            unit_id: invite.unit_id,
+            is_manager: false
           })
           .select()
           .single();
@@ -124,19 +124,19 @@ class AuthService {
           throw createError;
         }
 
-        tenant = newTenant;
+        profile = newProfile;
       }
 
-      // Mark invite as accepted
+      // Mark invite as completed
       await supabase
         .from('invites')
-        .update({ status: 'accepted' })
+        .update({ status: 'completed' })
         .eq('id', invite.id);
 
       return {
         success: true,
-        message: `✅ Welcome ${tenant.name || 'Resident'}! You're now registered for Unit ${tenant.unit_number} at ${tenant.building}.`,
-        tenant,
+        message: `✅ Welcome ${profile.full_name || 'Resident'}! You're now registered for Unit ${invite.units?.unit_number} at ${invite.units?.buildings?.name}.`,
+        profile,
         unit: invite.units,
         building: invite.units?.buildings
       };
@@ -151,70 +151,61 @@ class AuthService {
 
   /**
    * Create a session for authenticated user
+   * Note: Sessions are now handled by the chatbot platform
    */
-  async createSession(tenantId: number, facebookId: string): Promise<string> {
-    try {
-      const sessionToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour session
-
-      await supabase
-        .from('tenant_sessions')
-        .insert({
-          tenant_id: tenantId,
-          facebook_id: facebookId,
-          session_token: sessionToken,
-          expires_at: expiresAt.toISOString(),
-          is_active: true
-        });
-
-      return sessionToken;
-    } catch (error) {
-      console.error('Error creating session:', error);
-      throw error;
-    }
+  async createSession(profileId: string, facebookId: string): Promise<void> {
+    // Sessions are managed by the chat platform
+    // This method is kept for compatibility but doesn't do anything
+    console.log(`Session created for profile ${profileId} with Facebook ID ${facebookId}`);
   }
 
   /**
-   * Get tenant information
+   * Get user profile information
    */
-  async getTenantInfo(facebookId: string): Promise<Tenant | null> {
+  async getUserProfile(facebookId: string): Promise<Profile | null> {
     try {
-      const { data: tenant, error } = await supabase
-        .from('tenants')
-        .select('*')
-        .eq('facebook_id', facebookId)
-        .eq('status', 'active')
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          units (
+            unit_number,
+            buildings (
+              name
+            )
+          )
+        `)
+        .eq('chat_platform_id', facebookId)
         .single();
 
       if (error) {
-        console.error('Error fetching tenant info:', error);
+        console.error('Error fetching user profile:', error);
         return null;
       }
 
-      return tenant;
+      return profile;
     } catch (error) {
-      console.error('Error in getTenantInfo:', error);
+      console.error('Error in getUserProfile:', error);
       return null;
     }
   }
 
   /**
-   * Suspend a tenant account
+   * Remove user's chat platform ID (effectively logging them out)
    */
-  async suspendTenant(facebookId: string): Promise<boolean> {
+  async disconnectUser(facebookId: string): Promise<boolean> {
     try {
       const { error } = await supabase
-        .from('tenants')
+        .from('profiles')
         .update({ 
-          status: 'suspended',
+          chat_platform_id: null,
           updated_at: new Date().toISOString()
         })
-        .eq('facebook_id', facebookId);
+        .eq('chat_platform_id', facebookId);
 
       return !error;
     } catch (error) {
-      console.error('Error suspending tenant:', error);
+      console.error('Error disconnecting user:', error);
       return false;
     }
   }

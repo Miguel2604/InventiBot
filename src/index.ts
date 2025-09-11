@@ -151,10 +151,10 @@ async function routePayload(senderId: string, payload: string) {
 }
 
 async function sendMainMenu(senderId: string) {
-  // Get tenant info for personalized greeting
-  const tenant = await authService.getTenantInfo(senderId);
-  const greeting = tenant?.name 
-    ? `Hi ${tenant.name}! What would you like to do?`
+  // Get user profile for personalized greeting
+  const profile = await authService.getUserProfile(senderId);
+  const greeting = profile?.full_name 
+    ? `Hi ${profile.full_name}! What would you like to do?`
     : 'Hi! What would you like to do?';
 
   await facebookService.sendQuickReply(senderId, greeting, [

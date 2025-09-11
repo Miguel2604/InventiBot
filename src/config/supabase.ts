@@ -15,72 +15,6 @@ export interface Building {
   created_at: string;
 }
 
-export interface User {
-  id: string;
-  facebook_id?: string;
-  full_name?: string;
-  unit_id?: string;
-  email?: string;
-  phone?: string;
-  is_verified: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface FAQ {
-  id: string;
-  building_id: string;
-  category: string;
-  question: string;
-  answer: string;
-  order_index?: number;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface Conversation {
-  id: number;
-  user_id: string;
-  manager_id?: string;
-  status: 'active' | 'resolved' | 'handoff';
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Message {
-  id: number;
-  conversation_id: number;
-  sender_type: 'user' | 'bot' | 'manager';
-  sender_id?: string;
-  message: string;
-  metadata?: any;
-  created_at: string;
-}
-
-export interface Tenant {
-  id: number;
-  facebook_id: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  unit_number?: string;
-  building?: string;
-  status: 'active' | 'inactive' | 'suspended';
-  preferences?: any;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Invite {
-  id: string;
-  unit_id: string;
-  full_name?: string;
-  login_code: string;
-  status: 'pending' | 'accepted' | 'expired';
-  created_at: string;
-  expires_at: string;
-}
-
 export interface Unit {
   id: string;
   building_id: string;
@@ -88,12 +22,70 @@ export interface Unit {
   created_at: string;
 }
 
-export interface TenantSession {
-  id: number;
-  tenant_id: number;
-  facebook_id: string;
-  session_token: string;
+export interface Invite {
+  id: string;
+  unit_id: string;
+  full_name?: string;
+  login_code: string;
+  status: 'pending' | 'completed';
+  created_at: string;
   expires_at: string;
-  is_active: boolean;
+}
+
+export interface Profile {
+  id: string;
+  unit_id?: string;
+  full_name?: string;
+  phone_number?: string;
+  is_manager: boolean;
+  chat_platform_id?: string; // Facebook ID
+  updated_at: string;
+}
+
+export interface Conversation {
+  id: number;
+  user_id: string;
+  manager_id?: string;
+  status: 'active' | 'handoff' | 'closed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaintenanceRequest {
+  id: string;
+  user_id: string;
+  unit_id: string;
+  ticket_number: number;
+  category: 'Plumbing' | 'Electrical' | 'Appliance' | 'General';
+  specific_issue: string;
+  urgency: 'Low' | 'Medium' | 'High';
+  status: 'Submitted' | 'Technician Assigned' | 'Completed' | 'Cancelled';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaintenanceRequestMedia {
+  id: string;
+  request_id: string;
+  file_path: string;
+  created_at: string;
+}
+
+export interface Amenity {
+  id: string;
+  building_id: string;
+  name: string;
+  description?: string;
+  image_url?: string;
+  booking_duration_hours: number;
+}
+
+export interface Booking {
+  id: string;
+  user_id: string;
+  amenity_id: string;
+  start_time: string;
+  end_time: string;
+  status: 'Confirmed' | 'Cancelled';
   created_at: string;
 }
