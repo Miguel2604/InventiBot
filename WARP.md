@@ -14,7 +14,7 @@ InventiBot is a Facebook Messenger chatbot for property management that helps re
 - **Database**: Supabase (PostgreSQL with Row Level Security)
 - **Platform**: Facebook Messenger API
 - **Session Management**: node-cache for in-memory caching
-- **Authentication**: Invite code system via Supabase
+- **Authentication**: Invite code system via Supabase (uses service role key for elevated permissions)
 
 ### Key Integration Flow
 ```
@@ -111,6 +111,7 @@ FACEBOOK_APP_SECRET=<app-secret>
 # Supabase
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
 # Session
 SESSION_DURATION_HOURS=24
