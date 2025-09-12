@@ -10,6 +10,7 @@ import { authHandler } from './handlers/auth.handler';
 import { maintenanceHandler } from './handlers/maintenance.handler';
 import { bookingHandler } from './handlers/booking.handler';
 import { MessagingEvent, WebhookEvent } from './types/facebook';
+import { webhookLogger, mainLogger } from './utils/logger';
 
 const app = express();
 
@@ -41,7 +42,7 @@ app.get('/webhook', (req: Request, res: Response) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token === config.facebook.verifyToken) {
-    console.log('WEBHOOK_VERIFIED');
+    mainLogger.info('Webhook verified successfully');
     return res.status(200).send(challenge as string);
   }
 
@@ -60,7 +61,10 @@ app.post('/webhook', async (req: Request, res: Response) => {
         try {
           await handleMessagingEvent(event);
         } catch (error) {
-          console.error('Error handling event:', error);
+          webhookLogger.error('Error handling messaging event', error, {
+            senderId: event.sender?.id,
+            eventType: event.message ? 'message' : event.postback ? 'postback' : 'unknown'
+          });
         }
       }
     }
@@ -78,18 +82,19 @@ const inMaintenanceFlow = new Map<string, boolean>();
 
 async function handleMessagingEvent(event: MessagingEvent) {
   const senderId = event.sender.id;
-  console.log(`[WEBHOOK] Processing event from sender: ${senderId}`);
-  console.log(`[WEBHOOK] Event type: ${event.message ? 'message' : event.postback ? 'postback' : 'unknown'}`);
-  if (event.message?.text) {
-    console.log(`[WEBHOOK] Message text: "${event.message.text}"`);
-  }
+  const eventType = event.message ? 'message' : event.postback ? 'postback' : 'unknown';
+  const payload = event.message?.quick_reply?.payload || event.postback?.payload;
+  const text = event.message?.text;
+  
+  webhookLogger.webhookLog(eventType, senderId, payload, text);
 
   // Check if user is authenticated
   const authStatus = await authService.isAuthenticated(senderId);
-  console.log(`[WEBHOOK] User ${senderId} authentication status:`, authStatus.authenticated);
-
-  // Handle quick replies and postbacks
-  const payload = event.message?.quick_reply?.payload || event.postback?.payload;
+  webhookLogger.info('Authentication check', {
+    senderId,
+    authenticated: authStatus.authenticated,
+    hasProfile: !!authStatus.profile
+  });
 
   if (payload) {
     // Special handling for GET_STARTED
@@ -229,7 +234,11 @@ async function handleHandoffRequest(senderId: string) {
   const profile = await authService.getUserProfile(senderId);
   const unit = profile?.units?.unit_number || 'Unknown';
   
-  console.log(`HANDOFF REQUEST: User ${senderId} from Unit ${unit} requested manager assistance`);
+  webhookLogger.info('Handoff request', {
+    senderId,
+    unit,
+    profileId: profile?.id
+  });
   
   await facebookService.sendTextMessage(
     senderId,
@@ -252,11 +261,14 @@ async function handleHandoffRequest(senderId: string) {
 }
 
 // Simple conversation logger
-function logConversation(_senderId: string, message: string, sender: 'user' | 'bot') {
+function logConversation(senderId: string, message: string, sender: 'user' | 'bot') {
   // For demo, just log to console
   // In production, this would save to the chatbot_conversations table
-  const timestamp = new Date().toISOString();
-  console.log(`[CONVERSATION] ${timestamp} - ${sender}: ${message.substring(0, 100)}`);
+  webhookLogger.info('Conversation', {
+    senderId,
+    sender,
+    message: message.substring(0, 100)
+  });
 }
 
 // Health check
@@ -266,7 +278,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // Debug endpoint to check database and invites
 app.get('/debug/invites', async (_req: Request, res: Response) => {
-  console.log('[DEBUG] Checking database connection and invites...');
+  mainLogger.info('Debug endpoint accessed: /debug/invites');
   
   try {
     // Test database connection
@@ -276,7 +288,7 @@ app.get('/debug/invites', async (_req: Request, res: Response) => {
       .limit(1);
     
     if (connError) {
-      console.error('[DEBUG] Database connection error:', connError);
+      mainLogger.error('Database connection test failed', connError);
       return res.status(500).json({ 
         error: 'Database connection failed', 
         details: connError 
@@ -290,14 +302,14 @@ app.get('/debug/invites', async (_req: Request, res: Response) => {
       .order('created_at', { ascending: false });
     
     if (invitesError) {
-      console.error('[DEBUG] Error fetching invites:', invitesError);
+      mainLogger.error('Error fetching invites', invitesError);
       return res.status(500).json({ 
         error: 'Failed to fetch invites', 
         details: invitesError 
       });
     }
     
-    console.log(`[DEBUG] Found ${invites?.length || 0} invites in database`);
+    mainLogger.info('Invites fetched successfully', { count: invites?.length || 0 });
     
     return res.status(200).json({
       database: 'connected',
@@ -306,7 +318,7 @@ app.get('/debug/invites', async (_req: Request, res: Response) => {
       supabase_url: config.supabase.url
     });
   } catch (error) {
-    console.error('[DEBUG] Unexpected error:', error);
+    mainLogger.error('Unexpected error in debug endpoint', error);
     return res.status(500).json({ error: 'Unexpected error', details: error });
   }
 });
@@ -317,15 +329,24 @@ export default app;
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== 'test') {
   app.listen(config.port, () => {
-    console.log(`Server is running on http://${config.host}:${config.port}`);
-    console.log(`Webhook URL: http://${config.host}:${config.port}/webhook`);
-    console.log('\n🚀 InventiBot is ready!');
+    mainLogger.info('Server started successfully', {
+      host: config.host,
+      port: config.port,
+      webhookUrl: `http://${config.host}:${config.port}/webhook`,
+      environment: process.env.NODE_ENV || 'production',
+      debug: config.debug
+    });
+    
+    console.log(`\n🚀 InventiBot is ready!`);
+    console.log(`Server: http://${config.host}:${config.port}`);
+    console.log(`Webhook: http://${config.host}:${config.port}/webhook`);
     console.log('\nFeatures enabled:');
     console.log('  ✅ Authentication with invite codes');
     console.log('  ✅ FAQ system');
     console.log('  ✅ Maintenance requests');
     console.log('  ✅ Amenity bookings');
     console.log('  ✅ Human handoff');
+    console.log('  ✅ Structured logging for Render');
   });
 }
 

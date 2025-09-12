@@ -1,8 +1,10 @@
 import { facebookService } from '../services/facebook.service';
 import { authService } from '../services/auth.service';
+import { authLogger } from '../utils/logger';
 
 export class AuthHandler {
   async promptForAccessCode(senderId: string): Promise<void> {
+    authLogger.info('Prompting for access code', { senderId });
     await facebookService.sendTextMessage(
       senderId,
       'Welcome to InventiBot! 🏢\n\nTo get started, please enter your unique access code provided by your property manager.'
@@ -11,11 +13,18 @@ export class AuthHandler {
 
   async handleAccessCode(senderId: string, code: string): Promise<void> {
     const normalized = code.trim().toUpperCase();
-    console.log(`[AUTH_HANDLER] Processing access code from ${senderId}: "${code}" -> "${normalized}"`);
+    authLogger.info('Processing access code', { 
+      senderId,
+      codeLength: code.length,
+      normalized: normalized.substring(0, 3) + '***'
+    });
 
     // Basic validation
     if (!/^[A-Z0-9-]{4,}$/.test(normalized)) {
-      console.log(`[AUTH_HANDLER] Code format validation failed for: ${normalized}`);
+      authLogger.info('Code format validation failed', { 
+        senderId,
+        pattern: 'Expected: [A-Z0-9-]{4,}'
+      });
       await facebookService.sendTextMessage(
         senderId,
         '⚠️ That code format looks incorrect. Please enter the code exactly as provided (letters and numbers).'
@@ -23,21 +32,24 @@ export class AuthHandler {
       return;
     }
     
-    console.log(`[AUTH_HANDLER] Code format valid, proceeding with validation`);
+    authLogger.debug('Code format valid, proceeding with validation', { senderId });
 
     await facebookService.sendTypingOn(senderId);
 
     const result = await authService.validateAccessCode(normalized, senderId);
-    console.log(`[AUTH_HANDLER] Validation result:`, {
+    authLogger.info('Access code validation completed', {
+      senderId,
       success: result.success,
-      message: result.message,
       hasProfile: !!result.profile,
       hasUnit: !!result.unit,
       hasBuilding: !!result.building
     });
 
     if (!result.success) {
-      console.log(`[AUTH_HANDLER] Access code validation failed for ${senderId}`);
+      authLogger.info('Access code validation failed', { 
+        senderId,
+        reason: result.message 
+      });
       await facebookService.sendTextMessage(senderId, result.message);
       await facebookService.sendQuickReply(senderId, 'Need help?', [
         { title: '🔁 Try Again', payload: 'AUTH_TRY_AGAIN' },
@@ -51,12 +63,22 @@ export class AuthHandler {
       try {
         await authService.createSession(result.profile.id, senderId);
       } catch (e) {
-        console.error('Auth session creation failed:', e);
+        authLogger.error('Session creation failed (non-critical)', e, { 
+          senderId,
+          profileId: result.profile.id 
+        });
       }
     }
 
     // Welcome message with summary
     await facebookService.sendTextMessage(senderId, result.message);
+    
+    authLogger.info('User authenticated successfully', {
+      senderId,
+      profileId: result.profile?.id,
+      unitNumber: result.unit?.unit_number,
+      buildingName: result.building?.name
+    });
 
     // Show main menu
     await facebookService.sendQuickReply(senderId, 'How can I help you today?', [

@@ -1,5 +1,6 @@
 import { supabase, supabaseAdmin, Profile } from '../config/supabase';
 import crypto from 'crypto';
+import { authLogger, dbLogger } from '../utils/logger';
 
 class AuthService {
   /**
@@ -7,19 +8,38 @@ class AuthService {
    */
   async isAuthenticated(facebookId: string): Promise<{ authenticated: boolean; profile?: Profile }> {
     try {
+      authLogger.debug('Checking authentication', { facebookId });
+      
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('chat_platform_id', facebookId)
         .single();
 
-      if (error || !profile) {
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows found - this is expected for new users
+          authLogger.debug('No profile found for user', { facebookId });
+        } else {
+          // Actual error
+          dbLogger.dbLog('SELECT', 'profiles', false, error, { facebookId });
+        }
         return { authenticated: false };
       }
 
+      if (!profile) {
+        authLogger.debug('No profile found', { facebookId });
+        return { authenticated: false };
+      }
+
+      authLogger.info('User authenticated', { 
+        facebookId, 
+        profileId: profile.id,
+        hasUnit: !!profile.unit_id 
+      });
       return { authenticated: true, profile };
     } catch (error) {
-      console.error('Error checking authentication:', error);
+      authLogger.error('Error checking authentication', error, { facebookId });
       return { authenticated: false };
     }
   }
@@ -34,11 +54,11 @@ class AuthService {
     unit?: any;
     building?: any;
   }> {
-    console.log(`[AUTH] Validating access code: ${code.toUpperCase()} for Facebook ID: ${facebookId}`);
+    authLogger.authLog('validate_code_start', facebookId, code);
     
     try {
       // Check if invite exists and is valid
-      console.log(`[AUTH] Querying invites table for code: ${code.toUpperCase()}`);
+      authLogger.debug('Querying invites table', { code: code.toUpperCase() });
       const { data: invite, error: inviteError } = await supabaseAdmin
         .from('invites')
         .select(`
@@ -59,17 +79,23 @@ class AuthService {
         .single();
 
       if (inviteError) {
-        console.error('[AUTH] Error querying invites:', inviteError);
-        console.log('[AUTH] Error details:', {
-          code: inviteError.code,
-          message: inviteError.message,
-          details: inviteError.details,
-          hint: inviteError.hint
+        dbLogger.dbLog('SELECT', 'invites', false, inviteError, { 
+          code: code.substring(0, 3) + '***'
         });
+        
+        // Check for specific database errors
+        if (inviteError.code === 'PGRST116') {
+          authLogger.info('No matching invite found', { code: code.substring(0, 3) + '***' });
+        } else if (inviteError.code === '42P17') {
+          authLogger.error('RLS policy error - infinite recursion', inviteError);
+          return {
+            success: false,
+            message: '❌ System configuration error. Please contact support.'
+          };
+        }
       }
 
       if (!invite) {
-        console.log('[AUTH] No invite found for code:', code.toUpperCase());
         // Let's check if the invite exists but with different status
         const { data: anyInvite } = await supabaseAdmin
           .from('invites')
@@ -78,10 +104,24 @@ class AuthService {
           .single();
         
         if (anyInvite) {
-          console.log('[AUTH] Found invite but with status:', anyInvite.status);
-          console.log('[AUTH] Invite details:', anyInvite);
+          authLogger.info('Invite found but not valid', { 
+            status: anyInvite.status,
+            expired: new Date(anyInvite.expires_at) < new Date()
+          });
+          
+          if (anyInvite.status === 'claimed') {
+            return {
+              success: false,
+              message: '❌ This access code has already been used. Please contact your property manager.'
+            };
+          } else if (anyInvite.status === 'expired' || new Date(anyInvite.expires_at) < new Date()) {
+            return {
+              success: false,
+              message: '❌ This access code has expired. Please contact your property manager for a new code.'
+            };
+          }
         } else {
-          console.log('[AUTH] No invite exists with this code at all');
+          authLogger.info('No invite exists with this code');
         }
       }
 
@@ -94,11 +134,20 @@ class AuthService {
 
       // Check if invite has expired
       if (new Date(invite.expires_at) < new Date()) {
+        authLogger.info('Invite has expired', { 
+          code: code.substring(0, 3) + '***',
+          expiredAt: invite.expires_at 
+        });
+        
         // Mark invite as expired
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from('invites')
           .update({ status: 'expired' })
           .eq('id', invite.id);
+          
+        if (updateError) {
+          dbLogger.dbLog('UPDATE', 'invites', false, updateError);
+        }
 
         return {
           success: false,
@@ -116,6 +165,11 @@ class AuthService {
       let profile: Profile;
 
       if (existingProfile) {
+        authLogger.info('Updating existing profile', { 
+          profileId: existingProfile.id,
+          facebookId 
+        });
+        
         // Update existing profile
         const { data: updatedProfile, error: updateError } = await supabase
           .from('profiles')
@@ -129,14 +183,21 @@ class AuthService {
           .single();
 
         if (updateError) {
+          dbLogger.dbLog('UPDATE', 'profiles', false, updateError);
           throw updateError;
         }
 
+        dbLogger.dbLog('UPDATE', 'profiles', true, null, { profileId: existingProfile.id });
         profile = updatedProfile;
       } else {
         // Create new profile with a generated auth user
-        // Note: In production, you'd create an auth user properly
         const userId = crypto.randomUUID();
+        
+        authLogger.info('Creating new profile', { 
+          userId,
+          facebookId,
+          unitId: invite.unit_id 
+        });
         
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
@@ -151,17 +212,33 @@ class AuthService {
           .single();
 
         if (createError) {
+          dbLogger.dbLog('INSERT', 'profiles', false, createError);
           throw createError;
         }
 
+        dbLogger.dbLog('INSERT', 'profiles', true, null, { profileId: userId });
         profile = newProfile;
       }
 
       // Mark invite as claimed
-      await supabaseAdmin
+      const { error: claimError } = await supabaseAdmin
         .from('invites')
         .update({ status: 'claimed' })
         .eq('id', invite.id);
+        
+      if (claimError) {
+        dbLogger.dbLog('UPDATE', 'invites', false, claimError);
+        // Don't fail the whole process if we can't update the invite status
+        authLogger.warn('Failed to mark invite as claimed', { inviteId: invite.id });
+      } else {
+        dbLogger.dbLog('UPDATE', 'invites', true, null, { inviteId: invite.id, status: 'claimed' });
+      }
+
+      authLogger.authLog('validate_code_success', facebookId, code, true, {
+        profileId: profile.id,
+        unitNumber: invite.units?.unit_number,
+        buildingName: invite.units?.buildings?.name
+      });
 
       return {
         success: true,
@@ -171,7 +248,8 @@ class AuthService {
         building: invite.units?.buildings
       };
     } catch (error) {
-      console.error('Error validating access code:', error);
+      authLogger.authLog('validate_code_error', facebookId, code, false);
+      authLogger.error('Error validating access code', error);
       return {
         success: false,
         message: '❌ An error occurred. Please try again later.'
@@ -186,7 +264,7 @@ class AuthService {
   async createSession(profileId: string, facebookId: string): Promise<void> {
     // Sessions are managed by the chat platform
     // This method is kept for compatibility but doesn't do anything
-    console.log(`Session created for profile ${profileId} with Facebook ID ${facebookId}`);
+    authLogger.debug('Session created (managed by platform)', { profileId, facebookId });
   }
 
   /**
@@ -211,13 +289,18 @@ class AuthService {
         .single();
 
       if (error) {
-        console.error('Error fetching user profile:', error);
+        dbLogger.dbLog('SELECT', 'profiles', false, error, { facebookId });
         return null;
       }
 
+      authLogger.debug('User profile fetched', { 
+        facebookId,
+        profileId: profile?.id,
+        hasUnit: !!profile?.unit_id 
+      });
       return profile;
     } catch (error) {
-      console.error('Error in getUserProfile:', error);
+      authLogger.error('Error in getUserProfile', error, { facebookId });
       return null;
     }
   }
@@ -235,9 +318,15 @@ class AuthService {
         })
         .eq('chat_platform_id', facebookId);
 
-      return !error;
+      if (error) {
+        dbLogger.dbLog('UPDATE', 'profiles', false, error, { facebookId });
+        return false;
+      }
+      
+      authLogger.info('User disconnected', { facebookId });
+      return true;
     } catch (error) {
-      console.error('Error disconnecting user:', error);
+      authLogger.error('Error disconnecting user', error, { facebookId });
       return false;
     }
   }
@@ -247,10 +336,13 @@ class AuthService {
    */
   async logAuthAttempt(facebookId: string, code: string, success: boolean): Promise<void> {
     try {
-      // You could create an auth_logs table to track login attempts
-      console.log(`Auth attempt - Facebook ID: ${facebookId}, Code: ${code.substring(0, 3)}***, Success: ${success}`);
+      // Log authentication attempt with masked code
+      authLogger.authLog('auth_attempt', facebookId, code, success);
+      
+      // In production, you could also save this to an auth_logs table
+      // for security auditing purposes
     } catch (error) {
-      console.error('Error logging auth attempt:', error);
+      authLogger.error('Error logging auth attempt', error);
     }
   }
 }
