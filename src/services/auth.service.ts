@@ -1,4 +1,4 @@
-import { supabase, Profile } from '../config/supabase';
+import { supabase, supabaseAdmin, Profile } from '../config/supabase';
 import crypto from 'crypto';
 
 class AuthService {
@@ -39,7 +39,7 @@ class AuthService {
     try {
       // Check if invite exists and is valid
       console.log(`[AUTH] Querying invites table for code: ${code.toUpperCase()}`);
-      const { data: invite, error: inviteError } = await supabase
+      const { data: invite, error: inviteError } = await supabaseAdmin
         .from('invites')
         .select(`
           *,
@@ -71,7 +71,7 @@ class AuthService {
       if (!invite) {
         console.log('[AUTH] No invite found for code:', code.toUpperCase());
         // Let's check if the invite exists but with different status
-        const { data: anyInvite } = await supabase
+        const { data: anyInvite } = await supabaseAdmin
           .from('invites')
           .select('id, login_code, status, expires_at')
           .eq('login_code', code.toUpperCase())
@@ -95,7 +95,7 @@ class AuthService {
       // Check if invite has expired
       if (new Date(invite.expires_at) < new Date()) {
         // Mark invite as expired
-        await supabase
+        await supabaseAdmin
           .from('invites')
           .update({ status: 'expired' })
           .eq('id', invite.id);
@@ -158,7 +158,7 @@ class AuthService {
       }
 
       // Mark invite as completed
-      await supabase
+      await supabaseAdmin
         .from('invites')
         .update({ status: 'completed' })
         .eq('id', invite.id);

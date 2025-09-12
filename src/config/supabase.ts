@@ -7,6 +7,12 @@ export const supabase = createClient(
   config.supabase.anonKey
 );
 
+// Initialize admin client for operations that need elevated permissions
+export const supabaseAdmin = createClient(
+  config.supabase.url,
+  config.supabase.serviceRoleKey
+);
+
 // Database types based on the schema
 export interface Building {
   id: string;
