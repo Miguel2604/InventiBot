@@ -118,11 +118,19 @@ async function handleMessagingEvent(event: MessagingEvent) {
   if (event.message?.text) {
     const text = event.message.text.trim();
 
-    // Check if user is in authentication flow
-    if (awaitingAuth.get(senderId) || !authStatus.authenticated) {
-      // Treat text as access code
-      awaitingAuth.delete(senderId);
-      await authHandler.handleAccessCode(senderId, text);
+    // If user is not authenticated, do not treat arbitrary text as an access code by default.
+    // Instead, use any free-text (e.g., "hello", "hi", "get started") as a start trigger to prompt for the code.
+    if (!authStatus.authenticated) {
+      if (awaitingAuth.get(senderId)) {
+        // We previously prompted for an access code, so this message is the code.
+        awaitingAuth.delete(senderId);
+        await authHandler.handleAccessCode(senderId, text);
+        return;
+      }
+
+      // Treat any first free-text from unauthenticated users as a "start" trigger
+      awaitingAuth.set(senderId, true);
+      await authHandler.promptForAccessCode(senderId);
       return;
     }
 
