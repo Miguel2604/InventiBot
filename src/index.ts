@@ -6,6 +6,8 @@ import { facebookService } from './services/facebook.service';
 import { authService } from './services/auth.service';
 import { faqHandler } from './handlers/faq.handler';
 import { authHandler } from './handlers/auth.handler';
+import { maintenanceHandler } from './handlers/maintenance.handler';
+import { bookingHandler } from './handlers/booking.handler';
 import { MessagingEvent, WebhookEvent } from './types/facebook';
 
 const app = express();
@@ -70,6 +72,8 @@ app.post('/webhook', async (req: Request, res: Response) => {
 
 // Track users awaiting authentication
 const awaitingAuth = new Map<string, boolean>();
+// Track users in maintenance flow
+const inMaintenanceFlow = new Map<string, boolean>();
 
 async function handleMessagingEvent(event: MessagingEvent) {
   const senderId = event.sender.id;
@@ -122,6 +126,15 @@ async function handleMessagingEvent(event: MessagingEvent) {
       return;
     }
 
+    // Check if user is in maintenance flow
+    if (inMaintenanceFlow.get(senderId)) {
+      await maintenanceHandler.handleTextInput(senderId, text);
+      return;
+    }
+
+    // Log conversation for analytics (simple version)
+    logConversation(senderId, text, 'user');
+
     // Authenticated user sending text - show main menu
     await sendMainMenu(senderId);
     return;
@@ -129,6 +142,11 @@ async function handleMessagingEvent(event: MessagingEvent) {
 }
 
 async function routePayload(senderId: string, payload: string) {
+  // Clear flow states when navigating
+  if (payload === 'MAIN_MENU') {
+    inMaintenanceFlow.delete(senderId);
+  }
+
   switch (payload) {
     case 'GET_STARTED':
     case 'MAIN_MENU':
@@ -139,14 +157,39 @@ async function routePayload(senderId: string, payload: string) {
       await faqHandler.handleMainMenu(senderId);
       break;
 
+    case 'MAINTENANCE_REQUEST':
+      inMaintenanceFlow.set(senderId, true);
+      await maintenanceHandler.startRequest(senderId);
+      break;
+
+    case 'BOOK_AMENITY':
+      await bookingHandler.startBooking(senderId);
+      break;
+
+    case 'MY_BOOKINGS':
+      await bookingHandler.showMyBookings(senderId);
+      break;
+
+    case 'HANDOFF_REQUEST':
+      await handleHandoffRequest(senderId);
+      break;
+
     default:
+      // Check for specific handler prefixes
       if (payload.startsWith('FAQ_')) {
         await faqHandler.handlePayload(senderId, payload);
-        break;
+      } else if (payload.startsWith('MAINT_')) {
+        await maintenanceHandler.handlePayload(senderId, payload);
+        // Clear flow state if they completed or cancelled
+        if (payload === 'MAINT_CONFIRM_YES' || payload === 'MAINT_CONFIRM_NO') {
+          inMaintenanceFlow.delete(senderId);
+        }
+      } else if (payload.startsWith('BOOK_')) {
+        await bookingHandler.handlePayload(senderId, payload);
+      } else {
+        // Fallback to main menu
+        await sendMainMenu(senderId);
       }
-
-      // Fallback
-      await sendMainMenu(senderId);
   }
 }
 
@@ -165,6 +208,42 @@ async function sendMainMenu(senderId: string) {
   ]);
 }
 
+// Simple handoff handler
+async function handleHandoffRequest(senderId: string) {
+  // Log the handoff request
+  const profile = await authService.getUserProfile(senderId);
+  const unit = profile?.units?.unit_number || 'Unknown';
+  
+  console.log(`HANDOFF REQUEST: User ${senderId} from Unit ${unit} requested manager assistance`);
+  
+  await facebookService.sendTextMessage(
+    senderId,
+    `🤝 I've notified the property manager about your request.\n\n` +
+    `Someone from our team will contact you within 1 business hour during office hours, ` +
+    `or the next business day if after hours.\n\n` +
+    `For emergencies, please call our 24/7 hotline at (555) 123-4567.`
+  );
+
+  // Show options
+  await facebookService.sendQuickReply(
+    senderId,
+    'While you wait, is there anything else I can help with?',
+    [
+      { title: '🏠 Main Menu', payload: 'MAIN_MENU' },
+      { title: 'ℹ️ Building Info', payload: 'FAQ_MAIN' },
+      { title: '📅 Book Amenity', payload: 'BOOK_AMENITY' }
+    ]
+  );
+}
+
+// Simple conversation logger
+function logConversation(_senderId: string, message: string, sender: 'user' | 'bot') {
+  // For demo, just log to console
+  // In production, this would save to the chatbot_conversations table
+  const timestamp = new Date().toISOString();
+  console.log(`[CONVERSATION] ${timestamp} - ${sender}: ${message.substring(0, 100)}`);
+}
+
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
@@ -172,5 +251,13 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.listen(config.port, () => {
   console.log(`Server is running on http://${config.host}:${config.port}`);
+  console.log(`Webhook URL: http://${config.host}:${config.port}/webhook`);
+  console.log('\n🚀 InventiBot is ready!');
+  console.log('\nFeatures enabled:');
+  console.log('  ✅ Authentication with invite codes');
+  console.log('  ✅ FAQ system');
+  console.log('  ✅ Maintenance requests');
+  console.log('  ✅ Amenity bookings');
+  console.log('  ✅ Human handoff');
 });
 

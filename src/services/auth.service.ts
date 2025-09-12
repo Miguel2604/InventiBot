@@ -162,15 +162,17 @@ class AuthService {
   /**
    * Get user profile information
    */
-  async getUserProfile(facebookId: string): Promise<Profile | null> {
+  async getUserProfile(facebookId: string): Promise<any | null> {
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
         .select(`
           *,
           units (
+            id,
             unit_number,
             buildings (
+              id,
               name
             )
           )

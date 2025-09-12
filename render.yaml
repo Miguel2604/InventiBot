@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: inventibot
+    runtime: node
+    repo: https://github.com/YOUR_GITHUB_USERNAME/InventiBot
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: FACEBOOK_VERIFY_TOKEN
+        generateValue: true
+      - key: FACEBOOK_ACCESS_TOKEN
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
