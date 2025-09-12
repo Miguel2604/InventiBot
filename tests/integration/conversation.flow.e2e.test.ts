@@ -6,7 +6,6 @@ import {
   resetAllMocks,
   testData 
 } from '../mocks';
-import { ConversationTester } from '../utils/conversation-tester';
 
 // Create conversation tester utility
 class ConversationTester {
@@ -21,7 +20,7 @@ class ConversationTester {
     this.messageSequence = [];
   }
 
-  async sendMessage(senderId: string, text: string) {
+  async sendMessage(senderId: string, text: string | any) {
     this.messageSequence.push({ type: 'message', senderId, text });
     // Simulate message handling
     return this.processMessage(senderId, text);
@@ -39,21 +38,21 @@ class ConversationTester {
     return this.processPostback(senderId, payload);
   }
 
-  private async processMessage(senderId: string, text: string) {
+  private async processMessage(_senderId: string, _text: string | any) {
     // Simulate webhook processing
-    const authStatus = await mockAuthService.isAuthenticated(senderId);
-    if (!authStatus.authenticated) {
+    const authStatus = await mockAuthService.isAuthenticated(_senderId);
+    if (!authStatus || !authStatus.authenticated) {
       return { response: 'Please enter your access code' };
     }
     return { response: 'Message received' };
   }
 
-  private async processQuickReply(senderId: string, payload: string) {
+  private async processQuickReply(_senderId: string, payload: string) {
     // Simulate quick reply processing
     return { response: `Processing ${payload}` };
   }
 
-  private async processPostback(senderId: string, payload: string) {
+  private async processPostback(_senderId: string, payload: string) {
     // Simulate postback processing
     return { response: `Processing ${payload}` };
   }
@@ -581,13 +580,13 @@ describe('End-to-End Conversation Flows', () => {
   describe('Complete User Journey', () => {
     it('should handle complete user journey from onboarding to service usage', async () => {
       const userId = 'complete_journey_user';
-      const journeyLog = [];
+      const journeyLog: any[] = [];
       
       // Track all interactions
-      mockFacebookService.sendTextMessage.mockImplementation((id, text) => {
+      mockFacebookService.sendTextMessage.mockImplementation((_id, text) => {
         journeyLog.push({ type: 'text', text });
       });
-      mockFacebookService.sendQuickReply.mockImplementation((id, text, replies) => {
+      mockFacebookService.sendQuickReply.mockImplementation((_id, text, replies) => {
         journeyLog.push({ type: 'quick_reply', text, options: replies.length });
       });
       

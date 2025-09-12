@@ -11,21 +11,33 @@ export class AuthHandler {
 
   async handleAccessCode(senderId: string, code: string): Promise<void> {
     const normalized = code.trim().toUpperCase();
+    console.log(`[AUTH_HANDLER] Processing access code from ${senderId}: "${code}" -> "${normalized}"`);
 
     // Basic validation
     if (!/^[A-Z0-9-]{4,}$/.test(normalized)) {
+      console.log(`[AUTH_HANDLER] Code format validation failed for: ${normalized}`);
       await facebookService.sendTextMessage(
         senderId,
         '⚠️ That code format looks incorrect. Please enter the code exactly as provided (letters and numbers).'
       );
       return;
     }
+    
+    console.log(`[AUTH_HANDLER] Code format valid, proceeding with validation`);
 
     await facebookService.sendTypingOn(senderId);
 
     const result = await authService.validateAccessCode(normalized, senderId);
+    console.log(`[AUTH_HANDLER] Validation result:`, {
+      success: result.success,
+      message: result.message,
+      hasProfile: !!result.profile,
+      hasUnit: !!result.unit,
+      hasBuilding: !!result.building
+    });
 
     if (!result.success) {
+      console.log(`[AUTH_HANDLER] Access code validation failed for ${senderId}`);
       await facebookService.sendTextMessage(senderId, result.message);
       await facebookService.sendQuickReply(senderId, 'Need help?', [
         { title: '🔁 Try Again', payload: 'AUTH_TRY_AGAIN' },

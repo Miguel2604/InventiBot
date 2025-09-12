@@ -34,8 +34,11 @@ class AuthService {
     unit?: any;
     building?: any;
   }> {
+    console.log(`[AUTH] Validating access code: ${code.toUpperCase()} for Facebook ID: ${facebookId}`);
+    
     try {
       // Check if invite exists and is valid
+      console.log(`[AUTH] Querying invites table for code: ${code.toUpperCase()}`);
       const { data: invite, error: inviteError } = await supabase
         .from('invites')
         .select(`
@@ -54,6 +57,33 @@ class AuthService {
         .eq('login_code', code.toUpperCase())
         .eq('status', 'pending')
         .single();
+
+      if (inviteError) {
+        console.error('[AUTH] Error querying invites:', inviteError);
+        console.log('[AUTH] Error details:', {
+          code: inviteError.code,
+          message: inviteError.message,
+          details: inviteError.details,
+          hint: inviteError.hint
+        });
+      }
+
+      if (!invite) {
+        console.log('[AUTH] No invite found for code:', code.toUpperCase());
+        // Let's check if the invite exists but with different status
+        const { data: anyInvite } = await supabase
+          .from('invites')
+          .select('id, login_code, status, expires_at')
+          .eq('login_code', code.toUpperCase())
+          .single();
+        
+        if (anyInvite) {
+          console.log('[AUTH] Found invite but with status:', anyInvite.status);
+          console.log('[AUTH] Invite details:', anyInvite);
+        } else {
+          console.log('[AUTH] No invite exists with this code at all');
+        }
+      }
 
       if (inviteError || !invite) {
         return {

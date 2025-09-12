@@ -14,7 +14,12 @@ jest.mock('../../src/services/facebook.service', () => ({
 
 jest.mock('../../src/config/supabase', () => ({
   supabase: {
-    from: jest.fn(),
+    from: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Not found' } }),
+    insert: jest.fn().mockReturnThis(),
+    update: jest.fn().mockReturnThis(),
   },
 }));
 
@@ -58,16 +63,20 @@ describe('Authentication Flow Integration Tests', () => {
       jest.spyOn(authService, 'validateAccessCode').mockResolvedValueOnce({
         success: true,
         message: '✅ Welcome Sarah! You\'re now registered for Unit 5B at Ocean View.',
-        tenant: {
-          id: 123,
-          facebook_id: userId,
-          name: 'Sarah',
-          unit_number: '5B',
-          building: 'Ocean View',
-          status: 'active',
+        profile: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          chat_platform_id: userId,
+          full_name: 'Sarah',
+          unit_id: 'unit_5b',
+          is_manager: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+        } as any,
+        unit: {
+          unit_number: '5B',
+          building: { name: 'Ocean View' }
         },
+        building: { name: 'Ocean View' }
       });
 
       await authHandler.handleAccessCode(userId, 'VALID123');
@@ -89,26 +98,30 @@ describe('Authentication Flow Integration Tests', () => {
       // Mock authenticated user
       jest.spyOn(authService, 'isAuthenticated').mockResolvedValueOnce({
         authenticated: true,
-        tenant: {
-          id: 456,
-          facebook_id: userId,
-          name: 'John Doe',
-          unit_number: '10A',
-          building: 'Sunset Heights',
-          status: 'active',
+        profile: {
+          id: '456e4567-e89b-12d3-a456-426614174000',
+          chat_platform_id: userId,
+          full_name: 'John Doe',
+          unit_id: 'unit_10a',
+          is_manager: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        },
+        } as any
       });
 
       // User should go directly to main menu
-      jest.spyOn(authService, 'getTenantInfo').mockResolvedValueOnce({
-        id: 456,
-        facebook_id: userId,
-        name: 'John Doe',
-        unit_number: '10A',
-        building: 'Sunset Heights',
-        status: 'active',
+      jest.spyOn(authService, 'getUserProfile').mockResolvedValueOnce({
+        id: '456e4567-e89b-12d3-a456-426614174000',
+        chat_platform_id: userId,
+        full_name: 'John Doe',
+        unit_id: 'unit_10a',
+        is_manager: false,
+        units: {
+          unit_number: '10A',
+          buildings: {
+            name: 'Sunset Heights'
+          }
+        },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -180,14 +193,15 @@ describe('Authentication Flow Integration Tests', () => {
       jest.spyOn(authService, 'validateAccessCode').mockResolvedValueOnce({
         success: true,
         message: '✅ Welcome!',
-        tenant: {
-          id: 789,
-          facebook_id: userId,
-          name: 'Test User',
-          status: 'active',
+        profile: {
+          id: '789e4567-e89b-12d3-a456-426614174000',
+          chat_platform_id: userId,
+          full_name: 'Test User',
+          unit_id: 'unit_test',
+          is_manager: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        },
+        } as any
       });
 
       await authHandler.handleAccessCode(userId, 'abc123');
@@ -226,14 +240,15 @@ describe('Authentication Flow Integration Tests', () => {
       jest.spyOn(authService, 'validateAccessCode').mockResolvedValueOnce({
         success: true,
         message: '✅ Welcome!',
-        tenant: {
-          id: 999,
-          facebook_id: userId,
-          name: 'Test User',
-          status: 'active',
+        profile: {
+          id: '999e4567-e89b-12d3-a456-426614174000',
+          chat_platform_id: userId,
+          full_name: 'Test User',
+          unit_id: 'unit_test',
+          is_manager: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        },
+        } as any
       });
 
       jest.spyOn(authService, 'createSession').mockRejectedValueOnce(

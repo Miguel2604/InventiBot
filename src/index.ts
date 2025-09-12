@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import crypto from 'crypto';
 import { config } from './config/env';
+import { supabase } from './config/supabase';
 import { facebookService } from './services/facebook.service';
 import { authService } from './services/auth.service';
 import { faqHandler } from './handlers/faq.handler';
@@ -77,9 +78,15 @@ const inMaintenanceFlow = new Map<string, boolean>();
 
 async function handleMessagingEvent(event: MessagingEvent) {
   const senderId = event.sender.id;
+  console.log(`[WEBHOOK] Processing event from sender: ${senderId}`);
+  console.log(`[WEBHOOK] Event type: ${event.message ? 'message' : event.postback ? 'postback' : 'unknown'}`);
+  if (event.message?.text) {
+    console.log(`[WEBHOOK] Message text: "${event.message.text}"`);
+  }
 
   // Check if user is authenticated
   const authStatus = await authService.isAuthenticated(senderId);
+  console.log(`[WEBHOOK] User ${senderId} authentication status:`, authStatus.authenticated);
 
   // Handle quick replies and postbacks
   const payload = event.message?.quick_reply?.payload || event.postback?.payload;
@@ -257,15 +264,68 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
-app.listen(config.port, () => {
-  console.log(`Server is running on http://${config.host}:${config.port}`);
-  console.log(`Webhook URL: http://${config.host}:${config.port}/webhook`);
-  console.log('\n🚀 InventiBot is ready!');
-  console.log('\nFeatures enabled:');
-  console.log('  ✅ Authentication with invite codes');
-  console.log('  ✅ FAQ system');
-  console.log('  ✅ Maintenance requests');
-  console.log('  ✅ Amenity bookings');
-  console.log('  ✅ Human handoff');
+// Debug endpoint to check database and invites
+app.get('/debug/invites', async (_req: Request, res: Response) => {
+  console.log('[DEBUG] Checking database connection and invites...');
+  
+  try {
+    // Test database connection
+    const { error: connError } = await supabase
+      .from('invites')
+      .select('count')
+      .limit(1);
+    
+    if (connError) {
+      console.error('[DEBUG] Database connection error:', connError);
+      return res.status(500).json({ 
+        error: 'Database connection failed', 
+        details: connError 
+      });
+    }
+    
+    // Get all invites
+    const { data: invites, error: invitesError } = await supabase
+      .from('invites')
+      .select('id, login_code, status, expires_at, full_name, created_at')
+      .order('created_at', { ascending: false });
+    
+    if (invitesError) {
+      console.error('[DEBUG] Error fetching invites:', invitesError);
+      return res.status(500).json({ 
+        error: 'Failed to fetch invites', 
+        details: invitesError 
+      });
+    }
+    
+    console.log(`[DEBUG] Found ${invites?.length || 0} invites in database`);
+    
+    return res.status(200).json({
+      database: 'connected',
+      invites_count: invites?.length || 0,
+      invites: invites || [],
+      supabase_url: config.supabase.url
+    });
+  } catch (error) {
+    console.error('[DEBUG] Unexpected error:', error);
+    return res.status(500).json({ error: 'Unexpected error', details: error });
+  }
 });
+
+// Export app for testing
+export default app;
+
+// Only start server if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(config.port, () => {
+    console.log(`Server is running on http://${config.host}:${config.port}`);
+    console.log(`Webhook URL: http://${config.host}:${config.port}/webhook`);
+    console.log('\n🚀 InventiBot is ready!');
+    console.log('\nFeatures enabled:');
+    console.log('  ✅ Authentication with invite codes');
+    console.log('  ✅ FAQ system');
+    console.log('  ✅ Maintenance requests');
+    console.log('  ✅ Amenity bookings');
+    console.log('  ✅ Human handoff');
+  });
+}
 

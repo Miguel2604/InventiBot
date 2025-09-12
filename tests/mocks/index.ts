@@ -257,8 +257,8 @@ export const resetAllMocks = () => {
   jest.resetAllMocks();
 };
 
-// Helper function to create mock response
-export const createMockResponse = (data: any, error: any = null) => {
+// Helper function to create mock data response
+export const createMockDataResponse = (data: any, error: any = null) => {
   if (error) {
     return Promise.reject(error);
   }
@@ -293,7 +293,7 @@ export const createMockRequest = (options: any = {}) => ({
 });
 
 // Mock Express response
-export const createMockResponse = () => {
+export const createMockExpressResponse = () => {
   const res: any = {};
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);

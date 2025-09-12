@@ -1,12 +1,10 @@
 import request from 'supertest';
-import express from 'express';
 import crypto from 'crypto';
 import { 
   testData, 
   mockFacebookService, 
   mockAuthService,
   mockSupabase,
-  setupSupabaseMock,
   resetAllMocks 
 } from '../mocks';
 
