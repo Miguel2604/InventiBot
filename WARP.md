@@ -249,6 +249,32 @@ npx ts-node -e "require('./src/config/supabase').supabase.from('buildings').sele
 # Sessions are in-memory and cleared on restart
 ```
 
+## Recent Fixes (December 2024)
+
+### Authentication & RLS Policy Fix
+**Problem**: Authentication was failing due to infinite recursion in `user_profiles` table RLS policies.
+
+**Solution**: 
+1. Run `fix-auth-rls-final.sql` in Supabase SQL Editor to fix RLS policies
+2. This script drops problematic policies and creates simple, non-recursive ones
+3. Ensures `profiles` table exists and migrates data from `user_profiles` if needed
+4. See `FIX_AUTH_INSTRUCTIONS.md` for detailed steps
+
+### Structured Logging Implementation
+**Feature**: Added structured logging for better visibility in Render.
+
+**Components**:
+- `src/utils/logger.ts`: Logger utility with JSON formatting for production
+- Different logger instances: `authLogger`, `webhookLogger`, `dbLogger`, `mainLogger`
+- Development: Human-readable format
+- Production (Render): JSON format for log aggregation
+
+**Usage**:
+```typescript
+import { authLogger } from '../utils/logger';
+authLogger.info('User authenticated', { userId, profileId });
+```
+
 ## Important Code Patterns
 
 ### Handler Response Pattern
