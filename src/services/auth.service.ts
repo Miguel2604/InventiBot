@@ -157,10 +157,10 @@ class AuthService {
         profile = newProfile;
       }
 
-      // Mark invite as completed
+      // Mark invite as claimed
       await supabaseAdmin
         .from('invites')
-        .update({ status: 'completed' })
+        .update({ status: 'claimed' })
         .eq('id', invite.id);
 
       return {

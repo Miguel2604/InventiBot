@@ -1,13 +1,25 @@
--- Fix RLS policies to allow the authentication flow to work
+-- Fix RLS policies with correct enum values for invite_status
 -- Run this in your Supabase SQL Editor
 
--- First, let's check if RLS is enabled on these tables
-SELECT schemaname, tablename, rowsecurity 
-FROM pg_tables 
-WHERE tablename IN ('invites', 'units', 'buildings', 'profiles', 'user_profiles')
-  AND schemaname = 'public';
+-- First, let's see what enum values are actually defined
+SELECT enumlabel 
+FROM pg_enum 
+WHERE enumtypid = (SELECT oid FROM pg_type WHERE typname = 'invite_status');
 
--- Enable RLS on all tables (if not already enabled)
+-- Drop existing policies if they exist (to avoid conflicts)
+DROP POLICY IF EXISTS "Allow service role full access" ON public.buildings;
+DROP POLICY IF EXISTS "Allow service role full access" ON public.units;
+DROP POLICY IF EXISTS "Allow service role full access" ON public.invites;
+DROP POLICY IF EXISTS "Allow service role full access" ON public.user_profiles;
+DROP POLICY IF EXISTS "Allow service role full access" ON public.profiles;
+
+DROP POLICY IF EXISTS "Allow anon read for auth" ON public.buildings;
+DROP POLICY IF EXISTS "Allow anon read for auth" ON public.units;
+DROP POLICY IF EXISTS "Allow anon read for auth" ON public.invites;
+DROP POLICY IF EXISTS "Allow anon access for auth" ON public.profiles;
+DROP POLICY IF EXISTS "Allow anon update invite status" ON public.invites;
+
+-- Enable RLS on all tables
 ALTER TABLE public.buildings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
@@ -25,18 +37,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 );
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
--- Drop existing policies if they exist (to avoid conflicts)
-DROP POLICY IF EXISTS "Allow service role full access" ON public.buildings;
-DROP POLICY IF EXISTS "Allow service role full access" ON public.units;
-DROP POLICY IF EXISTS "Allow service role full access" ON public.invites;
-DROP POLICY IF EXISTS "Allow service role full access" ON public.user_profiles;
-DROP POLICY IF EXISTS "Allow service role full access" ON public.profiles;
-
-DROP POLICY IF EXISTS "Allow anon read for auth" ON public.buildings;
-DROP POLICY IF EXISTS "Allow anon read for auth" ON public.units;
-DROP POLICY IF EXISTS "Allow anon read for auth" ON public.invites;
-DROP POLICY IF EXISTS "Allow anon access for auth" ON public.profiles;
 
 -- Create policies to allow service role full access to all tables
 CREATE POLICY "Allow service role full access" ON public.buildings
@@ -68,10 +68,10 @@ CREATE POLICY "Allow anon read for auth" ON public.invites
 CREATE POLICY "Allow anon access for auth" ON public.profiles
     FOR ALL USING (true);
 
--- Allow anon to update invite status (when completing authentication)
+-- Allow anon to update invite status (using correct enum values: 'claimed', 'expired')
 CREATE POLICY "Allow anon update invite status" ON public.invites
     FOR UPDATE USING (true)
-    WITH CHECK (status IN ('claimed', 'expired'));
+    WITH CHECK (status IN ('claimed', 'expired', 'revoked'));
 
 -- Show the policies that were created
 SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual
@@ -79,3 +79,9 @@ FROM pg_policies
 WHERE schemaname = 'public' 
   AND tablename IN ('buildings', 'units', 'invites', 'profiles', 'user_profiles')
 ORDER BY tablename, policyname;
+
+-- Show current invite statuses to verify
+SELECT 'Current invites:' as info;
+SELECT login_code, status, expires_at, created_at 
+FROM invites 
+ORDER BY created_at DESC;
