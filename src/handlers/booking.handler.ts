@@ -1,5 +1,5 @@
 import { facebookService } from '../services/facebook.service';
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { authService } from '../services/auth.service';
 
 interface BookingSession {
@@ -33,7 +33,7 @@ export class BookingHandler {
     }
 
     // Get amenities for the building (simplified - just show bookable ones)
-    const { data: amenities, error } = await supabase
+    const { data: amenities, error } = await supabaseAdmin
       .from('amenities')
       .select('*')
       .eq('building_id', profile.units?.buildings?.id)
@@ -79,7 +79,7 @@ export class BookingHandler {
     }
 
     // Get amenity details
-    const { data: amenity } = await supabase
+    const { data: amenity } = await supabaseAdmin
       .from('amenities')
       .select('*')
       .eq('id', amenityId)
@@ -216,7 +216,7 @@ Ready to confirm your booking?`;
     const endDateTime = `${session.date}T${session.endTime}:00`;
 
     // For demo, we'll skip real conflict checking and just book it
-    const { data: booking, error } = await supabase
+    const { data: booking, error } = await supabaseAdmin
       .from('bookings')
       .insert({
         building_id: profile.units?.buildings?.id,
@@ -347,7 +347,7 @@ You'll receive a reminder 1 hour before your booking. Enjoy!`
     }
 
     // Get upcoming bookings
-    const { data: bookings } = await supabase
+    const { data: bookings } = await supabaseAdmin
       .from('bookings')
       .select(`
         *,

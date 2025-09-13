@@ -1,5 +1,5 @@
 import { facebookService } from '../services/facebook.service';
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 
 interface FAQCategory {
   title: string;
