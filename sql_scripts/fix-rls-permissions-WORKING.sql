@@ -1,4 +1,4 @@
--- COMPLETE FIX FOR RLS PERMISSIONS
+-- COMPLETE FIX FOR RLS PERMISSIONS (CORRECTED VERSION)
 -- This script ensures the service role has proper access to all tables
 -- Run this in your Supabase SQL Editor
 
@@ -261,20 +261,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 
 -- =====================================================
--- STEP 11: Verify the fix
+-- STEP 11: Verify the fix (CORRECTED QUERIES)
 -- =====================================================
 
--- Check table permissions
+-- Check table permissions (FIXED column names)
 SELECT 
-    schemaname,
-    tablename,
+    table_schema,
+    table_name,
     privilege_type,
     grantee
 FROM information_schema.table_privileges
-WHERE schemaname = 'public' 
-    AND tablename IN ('profiles', 'invites', 'buildings', 'units')
+WHERE table_schema = 'public' 
+    AND table_name IN ('profiles', 'invites', 'buildings', 'units')
     AND grantee IN ('service_role', 'anon', 'authenticated')
-ORDER BY tablename, grantee, privilege_type;
+ORDER BY table_name, grantee, privilege_type;
 
 -- Check RLS status
 SELECT 
@@ -291,9 +291,7 @@ SELECT
     tablename, 
     policyname, 
     roles,
-    cmd,
-    qual,
-    with_check
+    cmd
 FROM pg_policies 
 WHERE schemaname = 'public' 
     AND tablename IN ('profiles', 'invites', 'buildings', 'units', 'user_profiles')
@@ -305,12 +303,14 @@ ORDER BY tablename, policyname;
 
 -- Test as service_role would see it (should return all data)
 SET ROLE service_role;
+SELECT 'Testing as service_role' as test_role;
 SELECT COUNT(*) as profile_count FROM public.profiles;
 SELECT COUNT(*) as invite_count FROM public.invites;
 RESET ROLE;
 
 -- Test as anon would see it (should also work with policies)
 SET ROLE anon;
+SELECT 'Testing as anon' as test_role;
 SELECT COUNT(*) as profile_count FROM public.profiles;
 SELECT COUNT(*) as invite_count FROM public.invites;
 RESET ROLE;
@@ -364,6 +364,8 @@ BEGIN
     );
     
     RAISE NOTICE 'Test invite TEST2024 created successfully';
+    RAISE NOTICE 'Building ID: %', test_building_id;
+    RAISE NOTICE 'Unit ID: %', test_unit_id;
 END $$;
 
 -- Show the test invite
