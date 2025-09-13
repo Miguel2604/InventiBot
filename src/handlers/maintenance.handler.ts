@@ -19,12 +19,28 @@ export class MaintenanceHandler {
    * Start maintenance request flow
    */
   async startRequest(senderId: string): Promise<void> {
+    console.log('\n========== MAINTENANCE REQUEST START ==========');
+    console.log('SenderId:', senderId);
+    
     // Initialize session
     sessions.set(senderId, { step: 'category' });
     
     // Get user profile to find their building
+    console.log('Fetching user profile...');
     const profile = await authService.getUserProfile(senderId);
+    
+    console.log('Profile result:', {
+      found: !!profile,
+      id: profile?.id,
+      fullName: profile?.full_name,
+      unit_id: profile?.unit_id,
+      hasUnits: !!profile?.units,
+      unitsData: profile?.units,
+      buildingFromUnits: profile?.units?.buildings
+    });
+    
     if (!profile || !profile.unit_id) {
+      console.log('ERROR: No profile or unit_id found');
       await facebookService.sendTextMessage(
         senderId,
         '❌ Unable to create maintenance request. Please contact your property manager.'
@@ -35,30 +51,57 @@ export class MaintenanceHandler {
     // Get the building ID from the nested relationship
     const buildingId = profile.units?.buildings?.id || profile.units?.building_id;
     
-    console.log('Maintenance request started:', {
+    console.log('Building extraction:', {
       senderId,
       profileId: profile.id,
       unitId: profile.unit_id,
       buildingId,
       hasUnits: !!profile.units,
-      hasBuilding: !!profile.units?.buildings
+      hasBuilding: !!profile.units?.buildings,
+      fullUnitsObject: JSON.stringify(profile.units, null, 2)
     });
 
     // Build query for maintenance categories
     // If we have a building ID, get building-specific and global categories
     // Otherwise, just get global categories
+    console.log('\nBuilding maintenance categories query...');
+    console.log('Query strategy:', buildingId ? 'Building-specific + Global' : 'Global only');
+    
     let query = supabase
       .from('maintenance_categories')
       .select('*')
       .eq('is_active', true);
     
     if (buildingId) {
-      query = query.or(`building_id.eq.${buildingId},building_id.is.null`);
+      const orClause = `building_id.eq.${buildingId},building_id.is.null`;
+      console.log('Using OR clause:', orClause);
+      query = query.or(orClause);
     } else {
+      console.log('No building ID, fetching only global categories');
       query = query.is('building_id', null);
     }
     
+    console.log('Executing query...');
     const { data: categories, error } = await query.order('name');
+    console.log('Query result:', {
+      error: error,
+      categoriesCount: categories?.length || 0,
+      categories: categories?.map(c => ({ id: c.id, name: c.name, building_id: c.building_id }))
+    });
+    
+    // TEMPORARY: Let's also try a simple query to get ALL categories for debugging
+    console.log('\n--- DEBUG: Fetching ALL categories without filters ---');
+    const { data: allCategories, error: allError } = await supabase
+      .from('maintenance_categories')
+      .select('*')
+      .eq('is_active', true);
+    
+    console.log('ALL categories result:', {
+      error: allError,
+      count: allCategories?.length || 0,
+      categories: allCategories?.map(c => ({ id: c.id, name: c.name, building_id: c.building_id, is_active: c.is_active }))
+    });
+    console.log('========== END DEBUG ==========\n');
 
     if (error) {
       console.error('Error fetching maintenance categories:', error);
