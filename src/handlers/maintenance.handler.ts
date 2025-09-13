@@ -1,5 +1,5 @@
 import { facebookService } from '../services/facebook.service';
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { authService } from '../services/auth.service';
 
 interface MaintenanceSession {
@@ -67,7 +67,7 @@ export class MaintenanceHandler {
     console.log('\nBuilding maintenance categories query...');
     console.log('Query strategy:', buildingId ? 'Building-specific + Global' : 'Global only');
     
-    let query = supabase
+    let query = supabaseAdmin
       .from('maintenance_categories')
       .select('*')
       .eq('is_active', true);
@@ -91,7 +91,7 @@ export class MaintenanceHandler {
     
     // TEMPORARY: Let's also try a simple query to get ALL categories for debugging
     console.log('\n--- DEBUG: Fetching ALL categories without filters ---');
-    const { data: allCategories, error: allError } = await supabase
+    const { data: allCategories, error: allError } = await supabaseAdmin
       .from('maintenance_categories')
       .select('*')
       .eq('is_active', true);
@@ -161,7 +161,7 @@ export class MaintenanceHandler {
     }
 
     // Get category details
-    const { data: category } = await supabase
+    const { data: category } = await supabaseAdmin
       .from('maintenance_categories')
       .select('name')
       .eq('id', categoryId)
@@ -295,7 +295,7 @@ Ready to submit?`;
     }
 
     // Submit to database
-    const { data: request, error } = await supabase
+    const { data: request, error } = await supabaseAdmin
       .from('maintenance_requests')
       .insert({
         building_id: profile.units?.buildings?.id,
@@ -467,6 +467,42 @@ Our team will review your request and contact you soon. For emergencies, please 
         'Door won\'t close',
         'Lost key',
         'Need lock change'
+      ],
+      'Windows & Doors': [
+        'Window won\'t open',
+        'Window won\'t close',
+        'Broken window glass',
+        'Door won\'t close properly',
+        'Door handle broken',
+        'Screen damaged',
+        'Window leak'
+      ],
+      'Pest Control': [
+        'Ants',
+        'Roaches',
+        'Mice/Rats',
+        'Spiders',
+        'Other insects'
+      ],
+      'Flooring': [
+        'Carpet stain',
+        'Loose tiles',
+        'Squeaky floor',
+        'Damaged flooring',
+        'Water damage'
+      ],
+      'Walls & Ceiling': [
+        'Hole in wall',
+        'Paint peeling',
+        'Water stain',
+        'Crack in ceiling',
+        'Mold visible'
+      ],
+      'Other': [
+        'Smoke detector beeping',
+        'Balcony issue',
+        'Storage problem',
+        'General repair needed'
       ]
     };
 
