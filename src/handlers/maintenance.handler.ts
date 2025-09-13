@@ -32,22 +32,61 @@ export class MaintenanceHandler {
       return;
     }
 
-    // Get maintenance categories for the building
-    const { data: categories, error } = await supabase
+    // Get the building ID from the nested relationship
+    const buildingId = profile.units?.buildings?.id || profile.units?.building_id;
+    
+    console.log('Maintenance request started:', {
+      senderId,
+      profileId: profile.id,
+      unitId: profile.unit_id,
+      buildingId,
+      hasUnits: !!profile.units,
+      hasBuilding: !!profile.units?.buildings
+    });
+
+    // Build query for maintenance categories
+    // If we have a building ID, get building-specific and global categories
+    // Otherwise, just get global categories
+    let query = supabase
       .from('maintenance_categories')
       .select('*')
-      .or(`building_id.eq.${profile.units?.buildings?.id},building_id.is.null`)
-      .eq('is_active', true)
-      .order('name');
+      .eq('is_active', true);
+    
+    if (buildingId) {
+      query = query.or(`building_id.eq.${buildingId},building_id.is.null`);
+    } else {
+      query = query.is('building_id', null);
+    }
+    
+    const { data: categories, error } = await query.order('name');
 
-    if (error || !categories || categories.length === 0) {
+    if (error) {
+      console.error('Error fetching maintenance categories:', error);
       await facebookService.sendTextMessage(
         senderId,
-        '❌ No maintenance categories available. Please contact your property manager.'
+        '❌ Unable to fetch maintenance categories. Please try again later.'
       );
       sessions.delete(senderId);
       return;
     }
+    
+    if (!categories || categories.length === 0) {
+      console.log('No maintenance categories found for:', {
+        buildingId,
+        profileId: profile.id
+      });
+      await facebookService.sendTextMessage(
+        senderId,
+        '❌ No maintenance categories available. Please contact your property manager to set up maintenance categories.'
+      );
+      sessions.delete(senderId);
+      return;
+    }
+    
+    console.log(`Found ${categories.length} maintenance categories`);
+    categories.forEach(cat => {
+      console.log(`- ${cat.name} (${cat.building_id ? 'Building-specific' : 'Global'})`);
+    });
 
     // Create quick replies for categories (max 11 due to FB limit)
     const quickReplies = categories.slice(0, 10).map(cat => ({
