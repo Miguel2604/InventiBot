@@ -36,6 +36,10 @@ coverage/
 temp/
 tmp/
 
+# SQL Scripts (keep utilities, archive the rest)
+sql_scripts/archive/
+sql_scripts/fixes/
+
 # Package manager files
 package-lock.json.backup
 yarn.lock.backup

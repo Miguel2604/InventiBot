@@ -32,7 +32,7 @@ INSERT INTO units (id, building_id, unit_number, floor, bedrooms, bathrooms, squ
 
 -- =====================================================
 -- Create test users (these would normally be created through Supabase Auth)
--- For testing purposes, we'll insert directly into user_profiles
+-- For testing purposes, we'll insert directly into profiles
 -- In production, these would be created when users sign up
 -- =====================================================
 
@@ -40,7 +40,7 @@ INSERT INTO units (id, building_id, unit_number, floor, bedrooms, bathrooms, squ
 -- You'll need to create these users through Supabase Auth first and update these IDs
 
 -- Sample user profiles (update these IDs after creating users in Supabase Auth)
--- INSERT INTO user_profiles (id, email, full_name, phone, role, building_id, unit_id, is_active) VALUES
+-- INSERT INTO profiles (id, user_id, email, full_name, phone, role, building_id, unit_id, is_active) VALUES
 -- ('admin-user-id', 'admin@sunsettower.com', 'John Admin', '+1-310-555-0101', 'admin', '11111111-1111-1111-1111-111111111111', NULL, true),
 -- ('tenant1-user-id', 'tenant1@example.com', 'Sarah Johnson', '+1-310-555-1001', 'tenant', '11111111-1111-1111-1111-111111111111', 'a1111111-1111-1111-1111-111111111111', true),
 -- ('tenant2-user-id', 'tenant2@example.com', 'Michael Chen', '+1-310-555-1002', 'tenant', '11111111-1111-1111-1111-111111111111', 'a2222222-2222-2222-2222-222222222222', true);
@@ -106,7 +106,7 @@ INSERT INTO faqs (id, building_id, category, question, answer, keywords, priorit
 =====================================================
 ANNOUNCEMENTS
 =====================================================
-Note: These require an actual admin user ID from your user_profiles table
+Note: These require an actual admin user ID from your profiles table
 Uncomment and update the created_by ID after creating admin users
 
 INSERT INTO announcements (id, building_id, title, content, category, priority, created_by, published_at, expires_at) VALUES

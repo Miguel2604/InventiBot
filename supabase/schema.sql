@@ -100,9 +100,10 @@ CREATE TABLE units (
     UNIQUE(building_id, unit_number)
 );
 
--- Extended user profiles (links to Supabase auth.users)
-CREATE TABLE user_profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+-- User profiles table (migrated from user_profiles)
+CREATE TABLE profiles (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL UNIQUE,
     full_name VARCHAR(255) NOT NULL,
     phone VARCHAR(50),
@@ -112,6 +113,7 @@ CREATE TABLE user_profiles (
     emergency_contact JSONB DEFAULT '{}',
     preferences JSONB DEFAULT '{}',
     is_active BOOLEAN DEFAULT TRUE,
+    messenger_id VARCHAR(255) UNIQUE,
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -152,13 +154,13 @@ CREATE TABLE maintenance_requests (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     building_id UUID NOT NULL REFERENCES buildings(id) ON DELETE CASCADE,
     unit_id UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     category_id UUID REFERENCES maintenance_categories(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
     urgency urgency_level DEFAULT 'medium',
     status maintenance_status DEFAULT 'submitted',
-    assigned_to UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+    assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
     media_urls JSONB DEFAULT '[]',
     notes JSONB DEFAULT '[]', -- Array of notes with timestamps and authors
     resolution_notes TEXT,
@@ -175,7 +177,7 @@ CREATE TABLE bookings (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     building_id UUID NOT NULL REFERENCES buildings(id) ON DELETE CASCADE,
     amenity_id UUID NOT NULL REFERENCES amenities(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     start_time TIMESTAMPTZ NOT NULL,
     end_time TIMESTAMPTZ NOT NULL,
     status booking_status DEFAULT 'pending',
@@ -183,7 +185,7 @@ CREATE TABLE bookings (
     notes TEXT,
     cancellation_reason TEXT,
     cancelled_at TIMESTAMPTZ,
-    cancelled_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+    cancelled_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT valid_booking_times CHECK (end_time > start_time)
@@ -199,8 +201,8 @@ CREATE TABLE invites (
     phone VARCHAR(50),
     login_code VARCHAR(20) NOT NULL UNIQUE,
     status invite_status DEFAULT 'pending',
-    created_by UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
-    claimed_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+    created_by UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    claimed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days'),
     claimed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -219,7 +221,7 @@ CREATE TABLE faqs (
     priority INTEGER DEFAULT 0,
     views_count INTEGER DEFAULT 0,
     helpful_count INTEGER DEFAULT 0,
-    created_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+    created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -235,7 +237,7 @@ CREATE TABLE announcements (
     target_units UUID[], -- Specific units, null means all
     published_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
-    created_by UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+    created_by UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     is_published BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -244,7 +246,7 @@ CREATE TABLE announcements (
 -- Chatbot conversations log
 CREATE TABLE chatbot_conversations (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    tenant_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     session_id VARCHAR(255) NOT NULL,
     messages JSONB NOT NULL DEFAULT '[]',
     metadata JSONB DEFAULT '{}',
@@ -259,7 +261,7 @@ CREATE TABLE audit_logs (
     table_name VARCHAR(100) NOT NULL,
     record_id UUID NOT NULL,
     action VARCHAR(20) NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
-    user_id UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
     old_data JSONB,
     new_data JSONB,
     ip_address INET,
@@ -278,11 +280,13 @@ CREATE INDEX idx_buildings_created_at ON buildings(created_at DESC);
 CREATE INDEX idx_units_building_id ON units(building_id);
 CREATE INDEX idx_units_occupied ON units(is_occupied);
 
--- User profiles indexes
-CREATE INDEX idx_user_profiles_email ON user_profiles(email);
-CREATE INDEX idx_user_profiles_role ON user_profiles(role);
-CREATE INDEX idx_user_profiles_building_id ON user_profiles(building_id);
-CREATE INDEX idx_user_profiles_unit_id ON user_profiles(unit_id);
+-- Profiles indexes
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+CREATE INDEX idx_profiles_email ON profiles(email);
+CREATE INDEX idx_profiles_role ON profiles(role);
+CREATE INDEX idx_profiles_building_id ON profiles(building_id);
+CREATE INDEX idx_profiles_unit_id ON profiles(unit_id);
+CREATE INDEX idx_profiles_messenger_id ON profiles(messenger_id);
 
 -- Maintenance requests indexes
 CREATE INDEX idx_maintenance_building_id ON maintenance_requests(building_id);
@@ -340,7 +344,7 @@ CREATE TRIGGER update_buildings_updated_at BEFORE UPDATE ON buildings
 CREATE TRIGGER update_units_updated_at BEFORE UPDATE ON units
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON user_profiles
+CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_amenities_updated_at BEFORE UPDATE ON amenities
@@ -421,7 +425,7 @@ BEGIN
         -- Check if unit should be marked as vacant
         IF OLD.unit_id IS NOT NULL AND OLD.role = 'tenant' THEN
             IF NOT EXISTS (
-                SELECT 1 FROM user_profiles 
+                SELECT 1 FROM profiles 
                 WHERE unit_id = OLD.unit_id 
                 AND role = 'tenant' 
                 AND is_active = TRUE
@@ -437,7 +441,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_update_unit_occupancy
-    AFTER INSERT OR UPDATE OR DELETE ON user_profiles
+    AFTER INSERT OR UPDATE OR DELETE ON profiles
     FOR EACH ROW EXECUTE FUNCTION update_unit_occupancy();
 
 -- =====================================================
@@ -447,7 +451,7 @@ CREATE TRIGGER trigger_update_unit_occupancy
 -- Enable RLS on all tables
 ALTER TABLE buildings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE amenities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE maintenance_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE maintenance_requests ENABLE ROW LEVEL SECURITY;
@@ -465,8 +469,8 @@ CREATE POLICY "Buildings viewable by authenticated users" ON buildings
 CREATE POLICY "Buildings manageable by admins" ON buildings
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
         )
     );
@@ -475,8 +479,8 @@ CREATE POLICY "Buildings manageable by admins" ON buildings
 CREATE POLICY "Units viewable by building users" ON units
     FOR SELECT USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND (
                 role IN ('super_admin', 'admin', 'staff')
                 OR (role = 'tenant' AND building_id = units.building_id)
@@ -487,63 +491,71 @@ CREATE POLICY "Units viewable by building users" ON units
 CREATE POLICY "Units manageable by admins" ON units
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = units.building_id)
         )
     );
 
--- User profiles policies
-CREATE POLICY "Users can view own profile" ON user_profiles
-    FOR SELECT USING (id = auth.uid());
+-- Profiles policies
+CREATE POLICY "Users can view own profile" ON profiles
+    FOR SELECT USING (user_id = auth.uid());
 
-CREATE POLICY "Admins can view all profiles in their building" ON user_profiles
+CREATE POLICY "Admins can view all profiles in their building" ON profiles
     FOR SELECT USING (
         EXISTS (
-            SELECT 1 FROM user_profiles up
-            WHERE up.id = auth.uid()
+            SELECT 1 FROM profiles up
+            WHERE up.user_id = auth.uid()
             AND up.role IN ('super_admin', 'admin')
-            AND (up.role = 'super_admin' OR up.building_id = user_profiles.building_id)
+            AND (up.role = 'super_admin' OR up.building_id = profiles.building_id)
         )
     );
 
-CREATE POLICY "Users can update own profile" ON user_profiles
-    FOR UPDATE USING (id = auth.uid())
-    WITH CHECK (id = auth.uid());
+CREATE POLICY "Users can update own profile" ON profiles
+    FOR UPDATE USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY "Admins can manage profiles" ON user_profiles
+CREATE POLICY "Admins can manage profiles" ON profiles
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
         )
     );
 
 -- Maintenance requests policies
 CREATE POLICY "Tenants can view own requests" ON maintenance_requests
-    FOR SELECT USING (tenant_id = auth.uid());
+    FOR SELECT USING (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Staff can view assigned requests" ON maintenance_requests
     FOR SELECT USING (
-        assigned_to = auth.uid()
+        assigned_to IN (SELECT id FROM profiles WHERE user_id = auth.uid())
         OR EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin', 'staff')
             AND (role = 'super_admin' OR building_id = maintenance_requests.building_id)
         )
     );
 
 CREATE POLICY "Tenants can create requests" ON maintenance_requests
-    FOR INSERT WITH CHECK (tenant_id = auth.uid());
+    FOR INSERT WITH CHECK (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Admins and staff can update requests" ON maintenance_requests
     FOR UPDATE USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin', 'staff')
             AND (role = 'super_admin' OR building_id = maintenance_requests.building_id)
         )
@@ -551,13 +563,17 @@ CREATE POLICY "Admins and staff can update requests" ON maintenance_requests
 
 -- Bookings policies
 CREATE POLICY "Users can view own bookings" ON bookings
-    FOR SELECT USING (tenant_id = auth.uid());
+    FOR SELECT USING (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Admins can view all bookings" ON bookings
     FOR SELECT USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = bookings.building_id)
         )
@@ -565,19 +581,29 @@ CREATE POLICY "Admins can view all bookings" ON bookings
 
 CREATE POLICY "Tenants can create bookings" ON bookings
     FOR INSERT WITH CHECK (
-        tenant_id = auth.uid()
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
         AND NOT check_booking_conflict(amenity_id, start_time, end_time)
     );
 
 CREATE POLICY "Users can update own pending bookings" ON bookings
-    FOR UPDATE USING (tenant_id = auth.uid() AND status = 'pending')
-    WITH CHECK (tenant_id = auth.uid());
+    FOR UPDATE USING (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        ) AND status = 'pending'
+    )
+    WITH CHECK (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Admins can manage all bookings" ON bookings
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = bookings.building_id)
         )
@@ -587,8 +613,8 @@ CREATE POLICY "Admins can manage all bookings" ON bookings
 CREATE POLICY "Admins can manage invites" ON invites
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = invites.building_id)
         )
@@ -604,8 +630,8 @@ CREATE POLICY "FAQs viewable by all authenticated users" ON faqs
         AND (
             building_id IS NULL
             OR EXISTS (
-                SELECT 1 FROM user_profiles
-                WHERE id = auth.uid()
+                SELECT 1 FROM profiles
+                WHERE user_id = auth.uid()
                 AND building_id = faqs.building_id
             )
         )
@@ -614,8 +640,8 @@ CREATE POLICY "FAQs viewable by all authenticated users" ON faqs
 CREATE POLICY "Admins can manage FAQs" ON faqs
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = faqs.building_id OR faqs.building_id IS NULL)
         )
@@ -627,8 +653,8 @@ CREATE POLICY "Announcements viewable by building users" ON announcements
         is_published = TRUE
         AND (expires_at IS NULL OR expires_at > NOW())
         AND EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND building_id = announcements.building_id
             AND (
                 announcements.target_units IS NULL
@@ -640,8 +666,8 @@ CREATE POLICY "Announcements viewable by building users" ON announcements
 CREATE POLICY "Admins can manage announcements" ON announcements
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
             AND (role = 'super_admin' OR building_id = announcements.building_id)
         )
@@ -649,16 +675,24 @@ CREATE POLICY "Admins can manage announcements" ON announcements
 
 -- Chatbot conversations policies
 CREATE POLICY "Users can view own conversations" ON chatbot_conversations
-    FOR SELECT USING (tenant_id = auth.uid());
+    FOR SELECT USING (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Users can create own conversations" ON chatbot_conversations
-    FOR INSERT WITH CHECK (tenant_id = auth.uid());
+    FOR INSERT WITH CHECK (
+        tenant_id IN (
+            SELECT id FROM profiles WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Admins can view all conversations" ON chatbot_conversations
     FOR SELECT USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
         )
     );
@@ -667,8 +701,8 @@ CREATE POLICY "Admins can view all conversations" ON chatbot_conversations
 CREATE POLICY "Audit logs viewable by admins only" ON audit_logs
     FOR SELECT USING (
         EXISTS (
-            SELECT 1 FROM user_profiles
-            WHERE id = auth.uid()
+            SELECT 1 FROM profiles
+            WHERE user_id = auth.uid()
             AND role IN ('super_admin', 'admin')
         )
     );
@@ -711,7 +745,7 @@ BEGIN
             AND is_occupied = TRUE
         ),
         'active_tenants', (
-            SELECT COUNT(*) FROM user_profiles
+            SELECT COUNT(*) FROM profiles
             WHERE building_id = p_building_id
             AND role = 'tenant'
             AND is_active = TRUE
@@ -754,12 +788,12 @@ BEGIN
     WHERE id = v_invite.id;
     
     -- Update user profile
-    UPDATE user_profiles
+    UPDATE profiles
     SET building_id = v_invite.building_id,
         unit_id = v_invite.unit_id,
         role = 'tenant',
         is_active = TRUE
-    WHERE id = p_user_id;
+    WHERE user_id = p_user_id;
     
     RETURN json_build_object(
         'success', TRUE,
@@ -791,7 +825,7 @@ GRANT SELECT ON invites TO anon;
 
 COMMENT ON TABLE buildings IS 'Stores information about properties/buildings managed in the system';
 COMMENT ON TABLE units IS 'Individual units/apartments within buildings';
-COMMENT ON TABLE user_profiles IS 'Extended user information linked to Supabase auth.users';
+COMMENT ON TABLE profiles IS 'User profiles linked to Supabase auth.users (migrated from user_profiles)';
 COMMENT ON TABLE maintenance_requests IS 'Tenant maintenance/repair requests';
 COMMENT ON TABLE bookings IS 'Amenity reservations made by tenants';
 COMMENT ON TABLE invites IS 'Invitation codes for tenant onboarding';

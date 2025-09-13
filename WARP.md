@@ -123,6 +123,7 @@ SESSION_DURATION_HOURS=24
 2. Run migrations in SQL Editor:
    - Execute `supabase/schema.sql` for table creation
    - Execute `supabase/seed.sql` for sample data
+   - Run migrations in `supabase/migrations/` folder in order if needed
 3. Create storage buckets: `maintenance-media` and `amenity-images`
 
 ## Facebook Messenger Integration
@@ -141,7 +142,7 @@ The bot uses a hierarchical quick reply system:
 ## Key Database Tables
 
 - **invites**: Onboarding codes for new tenants
-- **user_profiles**: Extended user information linked to Supabase Auth
+- **profiles**: User information with chat platform linkage
 - **maintenance_requests**: Service request tracking
 - **bookings**: Amenity reservations
 - **faqs**: Knowledge base for chatbot responses
@@ -251,14 +252,16 @@ npx ts-node -e "require('./src/config/supabase').supabase.from('buildings').sele
 
 ## Recent Fixes (December 2024)
 
-### Authentication & RLS Policy Fix
-**Problem**: Authentication was failing due to infinite recursion in `user_profiles` table RLS policies.
+### Database Migration (Completed December 2024)
+**Migration**: Successfully migrated from `user_profiles` to `profiles` table.
 
-**Solution**: 
-1. Run `fix-auth-rls-final.sql` in Supabase SQL Editor to fix RLS policies
-2. This script drops problematic policies and creates simple, non-recursive ones
-3. Ensures `profiles` table exists and migrates data from `user_profiles` if needed
-4. See `FIX_AUTH_INSTRUCTIONS.md` for detailed steps
+**What was done**:
+1. Fixed RLS policies to prevent infinite recursion
+2. Migrated all data from `user_profiles` to `profiles` table
+3. Updated all foreign key constraints in `bookings` and `maintenance_requests`
+4. Dropped the deprecated `user_profiles` table
+
+**Current state**: The application now uses only the `profiles` table for user data.
 
 ### Structured Logging Implementation
 **Feature**: Added structured logging for better visibility in Render.
@@ -274,6 +277,7 @@ npx ts-node -e "require('./src/config/supabase').supabase.from('buildings').sele
 import { authLogger } from '../utils/logger';
 authLogger.info('User authenticated', { userId, profileId });
 ```
+
 
 ## Important Code Patterns
 
