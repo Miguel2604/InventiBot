@@ -272,7 +272,7 @@ export class FAQHandler {
    */
   async searchFAQs(buildingId: string, searchTerm: string): Promise<any[]> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('faqs')
         .select('*')
         .eq('building_id', buildingId)
