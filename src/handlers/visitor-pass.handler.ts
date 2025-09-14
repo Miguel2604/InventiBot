@@ -1,4 +1,4 @@
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { facebookService } from '../services/facebook.service';
 import { authService } from '../services/auth.service';
 import { mainLogger } from '../utils/logger';
@@ -304,7 +304,7 @@ Is this correct?`;
     // Create the visitor pass in the database
     try {
       // Generate pass code using database function
-      const { data: codeData, error: codeError } = await supabase
+      const { data: codeData, error: codeError } = await supabaseAdmin
         .rpc('generate_visitor_pass_code');
       
       if (codeError) throw codeError;
@@ -312,7 +312,7 @@ Is this correct?`;
       const passCode = codeData;
       
       // Create the pass
-      const { data: pass, error: passError } = await supabase
+      const { data: pass, error: passError } = await supabaseAdmin
         .from('visitor_passes')
         .insert({
           pass_code: passCode,
@@ -382,7 +382,7 @@ The building management has been notified about this visitor.`;
       const cleanCode = passCode.trim().toUpperCase();
       
       // Validate pass using database function
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .rpc('use_visitor_pass', { p_pass_code: cleanCode });
       
       if (error) {
@@ -403,7 +403,7 @@ The building management has been notified about this visitor.`;
       }
       
       // Get unit details for welcome message
-      const { data: unitData } = await supabase
+      const { data: unitData } = await supabaseAdmin
         .from('units')
         .select('unit_number, buildings(name)')
         .eq('id', data.unit_id)
@@ -466,7 +466,7 @@ Please proceed to the building. Have a great visit!`;
       }
       const session = authStatus.profile;
 
-      const { data: passes, error } = await supabase
+      const { data: passes, error } = await supabaseAdmin
         .from('visitor_passes')
         .select('*')
         .eq('created_by_tenant_id', session.id)
@@ -527,7 +527,7 @@ Please proceed to the building. Have a great visit!`;
       }
       const session = authStatus.profile;
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('visitor_passes')
         .update({ 
           status: 'cancelled',
