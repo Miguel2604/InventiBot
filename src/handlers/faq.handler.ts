@@ -1,164 +1,194 @@
 import { facebookService } from '../services/facebook.service';
 import { supabaseAdmin } from '../config/supabase';
+import { authService } from '../services/auth.service';
 
-interface FAQCategory {
-  title: string;
-  emoji: string;
-  payload: string;
-  subcategories?: FAQCategory[];
-  answer?: string;
+interface FAQ {
+  id: string;
+  building_id: string | null;
+  category: string;
+  question: string;
+  answer: string;
+  keywords: string[];
+  priority: number;
+  is_published: boolean;
+  views_count?: number;
+  helpful_count?: number;
 }
 
-// FAQ structure based on the requirements
-const faqStructure: FAQCategory[] = [
-  {
-    title: 'Hours of Operation',
-    emoji: '🕒',
-    payload: 'FAQ_HOURS',
-    subcategories: [
-      {
-        title: 'Pool',
-        emoji: '🏊',
-        payload: 'FAQ_HOURS_POOL',
-        answer: 'The pool is open from 8:00 AM to 10:00 PM, Tuesday to Sunday. It is closed on Mondays for cleaning.'
-      },
-      {
-        title: 'Gym',
-        emoji: '🏋️',
-        payload: 'FAQ_HOURS_GYM',
-        answer: 'The gym is open 24/7 for all residents. Please use your key fob for access after 10:00 PM.'
-      },
-      {
-        title: 'Office',
-        emoji: '🏢',
-        payload: 'FAQ_HOURS_OFFICE',
-        answer: 'The management office is open Monday to Friday, 9:00 AM to 6:00 PM, and Saturday 10:00 AM to 2:00 PM. Closed on Sundays.'
-      }
-    ]
-  },
-  {
-    title: 'Policies',
-    emoji: '📜',
-    payload: 'FAQ_POLICIES',
-    subcategories: [
-      {
-        title: 'Pets',
-        emoji: '🐕',
-        payload: 'FAQ_POLICIES_PETS',
-        answer: 'Pets are welcome! Maximum 2 pets per unit. Dogs must be under 50 lbs. All pets must be registered with the office.'
-      },
-      {
-        title: 'Noise',
-        emoji: '🔇',
-        payload: 'FAQ_POLICIES_NOISE',
-        answer: 'Quiet hours are from 10:00 PM to 8:00 AM. Please be respectful of your neighbors at all times.'
-      },
-      {
-        title: 'Parking',
-        emoji: '🚗',
-        payload: 'FAQ_POLICIES_PARKING',
-        answer: 'Each unit is assigned one parking spot. Guest parking is available on a first-come, first-served basis. Overnight guest parking requires a permit from the office.'
-      }
-    ]
-  },
-  {
-    title: 'Waste & Recycling',
-    emoji: '🗑️',
-    payload: 'FAQ_WASTE',
-    subcategories: [
-      {
-        title: 'Trash Collection',
-        emoji: '🗑️',
-        payload: 'FAQ_WASTE_TRASH',
-        answer: 'Trash is collected Monday, Wednesday, and Friday. Please place bins at the curb by 7:00 AM on collection days.'
-      },
-      {
-        title: 'Recycling',
-        emoji: '♻️',
-        payload: 'FAQ_WASTE_RECYCLING',
-        answer: 'Recycling is collected every Tuesday. Accepted items: paper, cardboard, plastic bottles, glass, and aluminum cans.'
-      },
-      {
-        title: 'Bulk Items',
-        emoji: '📦',
-        payload: 'FAQ_WASTE_BULK',
-        answer: 'Bulk item pickup is available on the first Saturday of each month. Please schedule with the office at least 48 hours in advance.'
-      }
-    ]
-  },
-  {
-    title: 'Access & Keys',
-    emoji: '🔑',
-    payload: 'FAQ_ACCESS',
-    subcategories: [
-      {
-        title: 'Lost Key/Fob',
-        emoji: '🔑',
-        payload: 'FAQ_ACCESS_LOST',
-        answer: 'Lost keys or fobs can be replaced at the office for a $50 fee. Temporary access can be arranged for emergencies.'
-      },
-      {
-        title: 'Guest Access',
-        emoji: '👥',
-        payload: 'FAQ_ACCESS_GUEST',
-        answer: 'Guests can be buzzed in through the intercom system. For extended stays, temporary access codes can be arranged through the office.'
-      },
-      {
-        title: 'Emergency Access',
-        emoji: '🚨',
-        payload: 'FAQ_ACCESS_EMERGENCY',
-        answer: 'For emergency lockouts after hours, call our 24/7 emergency line at (555) 123-4567. A fee may apply for after-hours service.'
-      }
-    ]
-  }
-];
+interface FAQSession {
+  currentCategory?: string;
+  faqList?: FAQ[];
+}
+
+// Store FAQ sessions in memory
+const sessions = new Map<string, FAQSession>();
+
+// Category emoji mapping
+const categoryEmojis: { [key: string]: string } = {
+  'Hours of Operation': '🕒',
+  'Policies': '📜',
+  'Waste & Recycling': '🗑️',
+  'Access & Keys': '🔑',
+  'Maintenance': '🔧',
+  'Amenities': '🏊',
+  'Payments': '💰',
+  'Emergencies': '🚨',
+  'General': 'ℹ️'
+};
 
 export class FAQHandler {
   /**
-   * Handle main FAQ menu
+   * Get user's building ID from their profile
    */
-  async handleMainMenu(senderId: string): Promise<void> {
-    const quickReplies = faqStructure.map(category => ({
-      title: `${category.emoji} ${category.title}`,
-      payload: category.payload
-    }));
-
-    // Add back to main menu option
-    quickReplies.push({
-      title: '🏠 Back to Main',
-      payload: 'MAIN_MENU'
-    });
-
-    await facebookService.sendQuickReply(
-      senderId,
-      'What information are you looking for? Please select a category:',
-      quickReplies
-    );
+  private async getUserBuildingId(senderId: string): Promise<string | null> {
+    const profile = await authService.getUserProfile(senderId);
+    return profile?.units?.buildings?.id || null;
   }
 
   /**
-   * Handle FAQ category selection
+   * Handle main FAQ menu - show categories from database
    */
-  async handleCategorySelection(senderId: string, payload: string): Promise<void> {
-    // Find the selected category
-    const category = faqStructure.find(cat => cat.payload === payload);
-    
-    if (!category) {
-      await this.handleMainMenu(senderId);
-      return;
-    }
+  async handleMainMenu(senderId: string): Promise<void> {
+    try {
+      const buildingId = await this.getUserBuildingId(senderId);
+      
+      // Get unique categories from database
+      // First try building-specific, then fall back to global
+      let query = supabaseAdmin
+        .from('faqs')
+        .select('category')
+        .eq('is_published', true);
 
-    if (category.subcategories && category.subcategories.length > 0) {
-      // Show subcategories
-      const quickReplies = category.subcategories.map(subcat => ({
-        title: `${subcat.emoji} ${subcat.title}`,
-        payload: subcat.payload
+      // Get both building-specific and global FAQs
+      if (buildingId) {
+        query = query.or(`building_id.eq.${buildingId},building_id.is.null`);
+      } else {
+        query = query.is('building_id', null);
+      }
+
+      const { data: faqData, error } = await query;
+
+      if (error) {
+        console.error('Error fetching FAQ categories:', error);
+        await facebookService.sendTextMessage(
+          senderId,
+          '❌ Unable to load FAQs. Please try again later.'
+        );
+        return;
+      }
+
+      // Get unique categories
+      const categories = [...new Set(faqData?.map(f => f.category) || [])];
+      
+      if (categories.length === 0) {
+        await facebookService.sendTextMessage(
+          senderId,
+          '📢 No FAQs available at the moment. Please contact the office for assistance.'
+        );
+        return;
+      }
+
+      // Sort categories by priority (using a predefined order)
+      const categoryOrder = ['Emergencies', 'Hours of Operation', 'Policies', 'Maintenance', 
+                            'Amenities', 'Payments', 'Waste & Recycling', 'Access & Keys', 'General'];
+      categories.sort((a, b) => {
+        const indexA = categoryOrder.indexOf(a);
+        const indexB = categoryOrder.indexOf(b);
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+      });
+
+      // Create quick replies for categories (max 10 due to FB limit)
+      const quickReplies = categories.slice(0, 10).map(category => ({
+        title: `${categoryEmojis[category] || '📌'} ${category}`,
+        payload: `FAQ_CAT_${category.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
       }));
 
-      // Add back options
+      // Add back to main menu option
+      quickReplies.push({
+        title: '🏠 Back to Main',
+        payload: 'MAIN_MENU'
+      });
+
+      await facebookService.sendQuickReply(
+        senderId,
+        'What information are you looking for? Please select a category:',
+        quickReplies
+      );
+    } catch (error) {
+      console.error('Error in handleMainMenu:', error);
+      await facebookService.sendTextMessage(
+        senderId,
+        '❌ An error occurred. Please try again later.'
+      );
+    }
+  }
+
+  /**
+   * Handle FAQ category selection - show FAQs from that category
+   */
+  async handleCategorySelection(senderId: string, categoryName: string): Promise<void> {
+    try {
+      const buildingId = await this.getUserBuildingId(senderId);
+      
+      // Get FAQs for this category
+      let query = supabaseAdmin
+        .from('faqs')
+        .select('*')
+        .eq('category', categoryName)
+        .eq('is_published', true)
+        .order('priority', { ascending: true });
+
+      // Get both building-specific and global FAQs
+      if (buildingId) {
+        query = query.or(`building_id.eq.${buildingId},building_id.is.null`);
+      } else {
+        query = query.is('building_id', null);
+      }
+
+      const { data: faqs, error } = await query;
+
+      if (error) {
+        console.error('Error fetching FAQs for category:', error);
+        await this.handleMainMenu(senderId);
+        return;
+      }
+
+      if (!faqs || faqs.length === 0) {
+        await facebookService.sendTextMessage(
+          senderId,
+          `No FAQs found for ${categoryName}. Please try another category.`
+        );
+        await this.handleMainMenu(senderId);
+        return;
+      }
+
+      // Store FAQs in session for later retrieval
+      sessions.set(senderId, { currentCategory: categoryName, faqList: faqs });
+
+      // If only one FAQ, show it directly
+      if (faqs.length === 1) {
+        await this.sendAnswer(senderId, faqs[0].answer, faqs[0].question);
+        return;
+      }
+
+      // Create quick replies for FAQs (max 9 to leave room for navigation)
+      const quickReplies = faqs.slice(0, 9).map((faq, index) => {
+        // Truncate question if too long for Facebook button
+        const title = faq.question.length > 20 
+          ? faq.question.substring(0, 17) + '...' 
+          : faq.question;
+        return {
+          title,
+          payload: `FAQ_ITEM_${index}`
+        };
+      });
+
+      // Add navigation options
       quickReplies.push(
         {
-          title: '↩️ Back to FAQ',
+          title: '↩️ Back to Categories',
           payload: 'FAQ_MAIN'
         },
         {
@@ -167,51 +197,71 @@ export class FAQHandler {
         }
       );
 
+      const emoji = categoryEmojis[categoryName] || '📌';
       await facebookService.sendQuickReply(
         senderId,
-        `${category.emoji} ${category.title} - Select an option:`,
+        `${emoji} ${categoryName} - Select a question:`,
         quickReplies
       );
-    } else if (category.answer) {
-      // Send the answer
-      await this.sendAnswer(senderId, category.answer);
+    } catch (error) {
+      console.error('Error in handleCategorySelection:', error);
+      await this.handleMainMenu(senderId);
     }
   }
 
   /**
-   * Handle subcategory selection
+   * Handle individual FAQ item selection
    */
-  async handleSubcategorySelection(senderId: string, payload: string): Promise<void> {
-    // Find the subcategory across all categories
-    for (const category of faqStructure) {
-      if (category.subcategories) {
-        const subcategory = category.subcategories.find(sub => sub.payload === payload);
-        if (subcategory && subcategory.answer) {
-          await this.sendAnswer(senderId, subcategory.answer, category.payload);
-          return;
-        }
+  async handleFAQItemSelection(senderId: string, itemIndex: number): Promise<void> {
+    try {
+      const session = sessions.get(senderId);
+      if (!session || !session.faqList) {
+        await this.handleMainMenu(senderId);
+        return;
       }
-    }
 
-    // If not found, go back to main FAQ
-    await this.handleMainMenu(senderId);
+      const faq = session.faqList[itemIndex];
+      if (!faq) {
+        await this.handleMainMenu(senderId);
+        return;
+      }
+
+      // Send the answer with the question as context
+      await this.sendAnswer(senderId, faq.answer, faq.question, session.currentCategory);
+
+      // Update view count (optional, for analytics)
+      await supabaseAdmin
+        .from('faqs')
+        .update({ views_count: (faq.views_count || 0) + 1 })
+        .eq('id', faq.id);
+
+    } catch (error) {
+      console.error('Error in handleFAQItemSelection:', error);
+      await this.handleMainMenu(senderId);
+    }
   }
 
   /**
    * Send an answer with follow-up options
    */
-  private async sendAnswer(senderId: string, answer: string, parentPayload?: string): Promise<void> {
+  private async sendAnswer(senderId: string, answer: string, question?: string, category?: string): Promise<void> {
     try {
+      // Format the response with the question for context
+      let responseText = answer;
+      if (question) {
+        responseText = `💬 **${question}**\n\n${answer}`;
+      }
+      
       // Send the answer
-      await facebookService.sendTextMessage(senderId, answer);
+      await facebookService.sendTextMessage(senderId, responseText);
 
       // Send follow-up quick replies
       const quickReplies = [];
 
-      if (parentPayload) {
+      if (category) {
         quickReplies.push({
-          title: '↩️ Back',
-          payload: parentPayload
+          title: '↩️ Back to ' + (category.length > 10 ? category.substring(0, 7) + '...' : category),
+          payload: `FAQ_CAT_${category.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
         });
       }
 
@@ -251,16 +301,36 @@ export class FAQHandler {
       return;
     }
 
-    // Check if it's a main category
-    if (payload.startsWith('FAQ_') && !payload.includes('_', 4)) {
-      await this.handleCategorySelection(senderId, payload);
+    // Check if it's a category selection
+    if (payload.startsWith('FAQ_CAT_')) {
+      // Extract category name from payload
+      const categoryKey = payload.replace('FAQ_CAT_', '');
+      // Convert back from uppercase with underscores to original format
+      // This is a simple reverse mapping - in production you might want a more robust solution
+      const categoryName = categoryKey.replace(/_/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0) + word.slice(1).toLowerCase())
+        .join(' ');
+      
+      // Special case handling for known categories
+      const knownCategories: { [key: string]: string } = {
+        'HOURS_OF_OPERATION': 'Hours of Operation',
+        'WASTE_RECYCLING': 'Waste & Recycling',
+        'ACCESS_KEYS': 'Access & Keys'
+      };
+      
+      const finalCategoryName = knownCategories[categoryKey] || categoryName;
+      await this.handleCategorySelection(senderId, finalCategoryName);
       return;
     }
 
-    // Check if it's a subcategory
-    if (payload.startsWith('FAQ_')) {
-      await this.handleSubcategorySelection(senderId, payload);
-      return;
+    // Check if it's an FAQ item selection
+    if (payload.startsWith('FAQ_ITEM_')) {
+      const itemIndex = parseInt(payload.replace('FAQ_ITEM_', ''), 10);
+      if (!isNaN(itemIndex)) {
+        await this.handleFAQItemSelection(senderId, itemIndex);
+        return;
+      }
     }
     
     // Fallback to main menu for unknown payloads
@@ -268,17 +338,32 @@ export class FAQHandler {
   }
 
   /**
-   * Search FAQs from database (for future use with dynamic FAQs)
+   * Search FAQs from database by keyword
    */
-  async searchFAQs(buildingId: string, searchTerm: string): Promise<any[]> {
+  async searchFAQs(senderId: string, searchTerm: string): Promise<FAQ[]> {
     try {
-      const { data, error } = await supabaseAdmin
+      const buildingId = await this.getUserBuildingId(senderId);
+      
+      // Search in questions, answers, and keywords
+      let query = supabaseAdmin
         .from('faqs')
         .select('*')
-        .eq('building_id', buildingId)
-        .eq('is_active', true)
-        .ilike('question', `%${searchTerm}%`)
-        .order('order_index');
+        .eq('is_published', true);
+
+      // Get both building-specific and global FAQs
+      if (buildingId) {
+        query = query.or(`building_id.eq.${buildingId},building_id.is.null`);
+      } else {
+        query = query.is('building_id', null);
+      }
+
+      // Search in multiple fields
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      query = query.or(`question.ilike.${searchPattern},answer.ilike.${searchPattern}`);
+
+      const { data, error } = await query
+        .order('priority', { ascending: true })
+        .limit(10);
 
       if (error) {
         console.error('Error searching FAQs:', error);
