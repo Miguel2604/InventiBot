@@ -9,6 +9,7 @@ import { faqHandler } from './handlers/faq.handler';
 import { authHandler } from './handlers/auth.handler';
 import { maintenanceHandler } from './handlers/maintenance.handler';
 import { bookingHandler } from './handlers/booking.handler';
+import { visitorPassHandler } from './handlers/visitor-pass.handler';
 import { MessagingEvent, WebhookEvent } from './types/facebook';
 import { webhookLogger, mainLogger } from './utils/logger';
 
@@ -79,6 +80,8 @@ app.post('/webhook', async (req: Request, res: Response) => {
 const awaitingAuth = new Map<string, boolean>();
 // Track users in maintenance flow
 const inMaintenanceFlow = new Map<string, boolean>();
+// Track users in visitor pass creation flow
+const inVisitorPassFlow = new Map<string, boolean>();
 
 async function handleMessagingEvent(event: MessagingEvent) {
   const senderId = event.sender.id;
@@ -105,6 +108,13 @@ async function handleMessagingEvent(event: MessagingEvent) {
         return;
       }
       await sendMainMenu(senderId);
+      return;
+    }
+
+    // Handle user type selection (resident vs visitor)
+    if (payload === 'USER_TYPE_RESIDENT' || payload === 'USER_TYPE_VISITOR') {
+      await authHandler.handleUserTypeSelection(senderId, payload);
+      awaitingAuth.set(senderId, true);
       return;
     }
 
@@ -152,6 +162,12 @@ async function handleMessagingEvent(event: MessagingEvent) {
       return;
     }
 
+    // Check if user is in visitor pass creation flow
+    if (inVisitorPassFlow.get(senderId)) {
+      await visitorPassHandler.handleVisitorPassCreation(senderId, event.message);
+      return;
+    }
+
     // Log conversation for analytics (simple version)
     logConversation(senderId, text, 'user');
 
@@ -165,6 +181,7 @@ async function routePayload(senderId: string, payload: string) {
   // Clear flow states when navigating
   if (payload === 'MAIN_MENU') {
     inMaintenanceFlow.delete(senderId);
+    inVisitorPassFlow.delete(senderId);
   }
 
   switch (payload) {
@@ -194,6 +211,19 @@ async function routePayload(senderId: string, payload: string) {
       await handleHandoffRequest(senderId);
       break;
 
+    case 'VISITOR_PASS_MENU':
+      await handleVisitorPassMenu(senderId);
+      break;
+
+    case 'CREATE_VISITOR_PASS':
+      inVisitorPassFlow.set(senderId, true);
+      await visitorPassHandler.handleVisitorPassCreation(senderId, {});
+      break;
+
+    case 'LIST_VISITOR_PASSES':
+      await visitorPassHandler.listVisitorPasses(senderId);
+      break;
+
     default:
       // Check for specific handler prefixes
       if (payload.startsWith('FAQ_')) {
@@ -206,6 +236,16 @@ async function routePayload(senderId: string, payload: string) {
         }
       } else if (payload.startsWith('BOOK_')) {
         await bookingHandler.handlePayload(senderId, payload);
+      } else if (payload.startsWith('VISITOR_') || payload.startsWith('VISIT_') || 
+                 payload.startsWith('DURATION_') || payload.startsWith('CONFIRM_PASS_')) {
+        // Handle visitor pass flow payloads
+        await visitorPassHandler.handleVisitorPassCreation(senderId, { 
+          quick_reply: { payload } 
+        });
+        // Clear flow state if they completed or cancelled
+        if (payload === 'CONFIRM_PASS_YES' || payload === 'CONFIRM_PASS_NO') {
+          inVisitorPassFlow.delete(senderId);
+        }
       } else {
         // Fallback to main menu
         await sendMainMenu(senderId);
@@ -224,8 +264,22 @@ async function sendMainMenu(senderId: string) {
     { title: 'ℹ️ Building Info', payload: 'FAQ_MAIN' },
     { title: '🔧 Report Issue', payload: 'MAINTENANCE_REQUEST' },
     { title: '📅 Book Amenity', payload: 'BOOK_AMENITY' },
+    { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' },
     { title: '💬 Talk to Manager', payload: 'HANDOFF_REQUEST' }
   ]);
+}
+
+// Visitor pass menu handler
+async function handleVisitorPassMenu(senderId: string) {
+  await facebookService.sendQuickReply(
+    senderId,
+    '🎫 Visitor Pass Management\n\nWhat would you like to do?',
+    [
+      { title: '➕ Create Pass', payload: 'CREATE_VISITOR_PASS' },
+      { title: '📋 View My Passes', payload: 'LIST_VISITOR_PASSES' },
+      { title: '🏠 Main Menu', payload: 'MAIN_MENU' }
+    ]
+  );
 }
 
 // Simple handoff handler
@@ -345,6 +399,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log('  ✅ FAQ system');
     console.log('  ✅ Maintenance requests');
     console.log('  ✅ Amenity bookings');
+    console.log('  ✅ Visitor pass management');
     console.log('  ✅ Human handoff');
     console.log('  ✅ Structured logging for Render');
   });

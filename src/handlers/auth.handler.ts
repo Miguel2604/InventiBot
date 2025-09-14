@@ -1,25 +1,71 @@
 import { facebookService } from '../services/facebook.service';
 import { authService } from '../services/auth.service';
 import { authLogger } from '../utils/logger';
+import { visitorPassHandler } from './visitor-pass.handler';
 
 export class AuthHandler {
+  private visitorCheckInSessions: Map<string, boolean> = new Map();
+
   async promptForAccessCode(senderId: string): Promise<void> {
     authLogger.info('Prompting for access code', { senderId });
-    await facebookService.sendTextMessage(
+    await facebookService.sendQuickReply(
       senderId,
-      'Welcome to InventiBot! 🏢\n\nTo get started, please enter your unique access code provided by your property manager.'
+      'Welcome to InventiBot! 🏢\n\nAre you a resident or a visitor?',
+      [
+        { title: '🏠 I\'m a Resident', payload: 'USER_TYPE_RESIDENT' },
+        { title: '👋 I\'m a Visitor', payload: 'USER_TYPE_VISITOR' }
+      ]
     );
+  }
+
+  async handleUserTypeSelection(senderId: string, payload: string): Promise<void> {
+    authLogger.info('User type selected', { senderId, payload });
+    
+    if (payload === 'USER_TYPE_VISITOR') {
+      // Visitor flow
+      this.visitorCheckInSessions.set(senderId, true);
+      await facebookService.sendTextMessage(
+        senderId,
+        'Welcome! Please enter your visitor pass code provided by the resident you\'re visiting.'
+      );
+    } else if (payload === 'USER_TYPE_RESIDENT') {
+      // Resident flow  
+      this.visitorCheckInSessions.delete(senderId);
+      await facebookService.sendTextMessage(
+        senderId,
+        'Welcome back! Please enter your unique access code provided by your property manager.'
+      );
+    }
   }
 
   async handleAccessCode(senderId: string, code: string): Promise<void> {
     const normalized = code.trim().toUpperCase();
-    authLogger.info('Processing access code', { 
+    
+    // Check if this is a visitor trying to check in
+    if (this.visitorCheckInSessions.get(senderId)) {
+      authLogger.info('Processing visitor pass code', { senderId });
+      
+      // Visitor pass codes start with VP
+      if (normalized.startsWith('VP')) {
+        await visitorPassHandler.handleVisitorCheckIn(senderId, normalized);
+        this.visitorCheckInSessions.delete(senderId);
+        return;
+      } else {
+        await facebookService.sendTextMessage(
+          senderId,
+          '⚠️ That doesn\'t look like a valid visitor pass code. Visitor codes start with "VP". Please check and try again.'
+        );
+        return;
+      }
+    }
+    
+    authLogger.info('Processing resident access code', { 
       senderId,
       codeLength: code.length,
       normalized: normalized.substring(0, 3) + '***'
     });
 
-    // Basic validation
+    // Basic validation for resident codes
     if (!/^[A-Z0-9-]{4,}$/.test(normalized)) {
       authLogger.info('Code format validation failed', { 
         senderId,
@@ -80,11 +126,12 @@ export class AuthHandler {
       buildingName: result.building?.name
     });
 
-    // Show main menu
+    // Show main menu with visitor pass option
     await facebookService.sendQuickReply(senderId, 'How can I help you today?', [
       { title: 'ℹ️ Building Info', payload: 'FAQ_MAIN' },
       { title: '🔧 Report Issue', payload: 'MAINTENANCE_REQUEST' },
       { title: '📅 Book Amenity', payload: 'BOOK_AMENITY' },
+      { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' },
       { title: '💬 Talk to Manager', payload: 'HANDOFF_REQUEST' },
     ]);
   }
