@@ -303,6 +303,26 @@ Is this correct?`;
 
     // Create the visitor pass in the database
     try {
+      // First get the building_id from the unit if not on profile
+      let buildingId = userSession.building_id;
+      
+      if (!buildingId && userSession.unit_id) {
+        // Fetch the building_id from the unit
+        const { data: unitData, error: unitError } = await supabaseAdmin
+          .from('units')
+          .select('building_id')
+          .eq('id', userSession.unit_id)
+          .single();
+        
+        if (!unitError && unitData) {
+          buildingId = unitData.building_id;
+        }
+      }
+      
+      if (!buildingId) {
+        throw new Error('Could not determine building for this unit');
+      }
+      
       // Generate pass code using database function
       const { data: codeData, error: codeError } = await supabaseAdmin
         .rpc('generate_visitor_pass_code');
@@ -322,7 +342,7 @@ Is this correct?`;
           purpose: session.purpose,
           created_by_tenant_id: userSession.id,
           unit_id: userSession.unit_id,
-          building_id: userSession.units?.buildings?.id || userSession.units?.building_id,
+          building_id: buildingId,
           valid_from: session.validFrom?.toISOString(),
           valid_until: session.validUntil?.toISOString(),
           single_use: session.visitorType === 'delivery' // Delivery passes are single use
