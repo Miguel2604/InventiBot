@@ -237,7 +237,8 @@ async function routePayload(senderId: string, payload: string) {
       } else if (payload.startsWith('BOOK_')) {
         await bookingHandler.handlePayload(senderId, payload);
       } else if (payload.startsWith('VISITOR_') || payload.startsWith('VISIT_') || 
-                 payload.startsWith('DURATION_') || payload.startsWith('CONFIRM_PASS_')) {
+                 payload.startsWith('START_TIME_') || payload.startsWith('DURATION_') || 
+                 payload.startsWith('CONFIRM_PASS_')) {
         // Handle visitor pass flow payloads
         await visitorPassHandler.handleVisitorPassCreation(senderId, { 
           quick_reply: { payload } 

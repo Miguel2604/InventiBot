@@ -4,12 +4,13 @@ import { authService } from '../services/auth.service';
 import { mainLogger } from '../utils/logger';
 
 interface VisitorPassSession {
-  step: 'START' | 'NAME' | 'PHONE' | 'TYPE' | 'PURPOSE' | 'DATE' | 'DURATION' | 'CONFIRM';
+  step: 'START' | 'NAME' | 'PHONE' | 'TYPE' | 'PURPOSE' | 'DATE' | 'TIME' | 'DURATION' | 'CONFIRM';
   visitorName?: string;
   visitorPhone?: string;
   visitorType?: string;
   purpose?: string;
   visitDate?: string;
+  startTime?: string; // morning, afternoon, evening, or now
   duration?: number; // in hours
   validFrom?: Date;
   validUntil?: Date;
@@ -54,6 +55,8 @@ export class VisitorPassHandler {
           return await this.handlePurpose(senderId, message, passSession);
         case 'DATE':
           return await this.handleDate(senderId, message, passSession);
+        case 'TIME':
+          return await this.handleTime(senderId, message, passSession);
         case 'DURATION':
           return await this.handleDuration(senderId, message, passSession, authStatus.profile);
         case 'CONFIRM':
@@ -205,6 +208,42 @@ export class VisitorPassHandler {
     }
     
     session.visitDate = visitDate.toISOString().split('T')[0];
+    session.step = 'TIME';
+    
+    // Ask for preferred time
+    const timeOptions = payload === 'VISIT_DATE_TODAY'
+      ? [
+          { title: '⏰ Start Now', payload: 'START_TIME_NOW' },
+          { title: '🌅 Morning (9 AM)', payload: 'START_TIME_MORNING' },
+          { title: '☀️ Afternoon (2 PM)', payload: 'START_TIME_AFTERNOON' },
+          { title: '🌆 Evening (6 PM)', payload: 'START_TIME_EVENING' }
+        ]
+      : [
+          { title: '🌅 Morning (9 AM)', payload: 'START_TIME_MORNING' },
+          { title: '☀️ Afternoon (2 PM)', payload: 'START_TIME_AFTERNOON' },
+          { title: '🌆 Evening (6 PM)', payload: 'START_TIME_EVENING' }
+        ];
+    
+    await facebookService.sendQuickReply(
+      senderId,
+      "What time will the visitor arrive?",
+      timeOptions
+    );
+    return { success: true };
+  }
+  
+  private async handleTime(senderId: string, message: any, session: VisitorPassSession) {
+    const payload = message.quick_reply?.payload || message.postback?.payload;
+    
+    if (!payload || !payload.startsWith('START_TIME_')) {
+      await facebookService.sendTextMessage(
+        senderId,
+        "Please select a start time from the options."
+      );
+      return { success: true };
+    }
+    
+    session.startTime = payload.replace('START_TIME_', '').toLowerCase();
     session.step = 'DURATION';
     
     // Different durations based on visitor type
@@ -244,12 +283,51 @@ export class VisitorPassHandler {
     
     // Calculate valid from and until times
     const visitDate = new Date(session.visitDate!);
-    visitDate.setHours(8, 0, 0, 0); // Default start at 8 AM
-    session.validFrom = visitDate;
     
-    const validUntil = new Date(visitDate);
-    validUntil.setHours(validUntil.getHours() + session.duration);
-    session.validUntil = validUntil;
+    // Set the start time based on user selection
+    switch (session.startTime) {
+      case 'now':
+        // Start from next 15 minutes
+        const now = new Date();
+        const minutes = now.getMinutes();
+        const roundedMinutes = Math.ceil(minutes / 15) * 15;
+        now.setMinutes(roundedMinutes, 0, 0);
+        session.validFrom = now;
+        break;
+      case 'morning':
+        visitDate.setHours(9, 0, 0, 0);
+        session.validFrom = visitDate;
+        break;
+      case 'afternoon':
+        visitDate.setHours(14, 0, 0, 0); // 2 PM
+        session.validFrom = visitDate;
+        break;
+      case 'evening':
+        visitDate.setHours(18, 0, 0, 0); // 6 PM
+        session.validFrom = visitDate;
+        break;
+      default:
+        // Default to 9 AM if something goes wrong
+        visitDate.setHours(9, 0, 0, 0);
+        session.validFrom = visitDate;
+    }
+    
+    // For all-day passes, override with full day hours
+    if (session.duration === 24) {
+      // All day: valid from 7 AM to 11 PM
+      const startOfDay = new Date(session.visitDate!);
+      startOfDay.setHours(7, 0, 0, 0);
+      session.validFrom = startOfDay;
+      
+      const endOfDay = new Date(session.visitDate!);
+      endOfDay.setHours(23, 0, 0, 0); // 11 PM
+      session.validUntil = endOfDay;
+    } else {
+      // Calculate end time based on duration
+      const validUntil = new Date(session.validFrom);
+      validUntil.setTime(validUntil.getTime() + (session.duration * 60 * 60 * 1000));
+      session.validUntil = validUntil;
+    }
     
     session.step = 'CONFIRM';
     
