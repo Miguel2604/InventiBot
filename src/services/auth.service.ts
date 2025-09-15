@@ -12,7 +12,7 @@ class AuthService {
       
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, building_id')
         .eq('chat_platform_id', facebookId)
         .single();
 
@@ -176,6 +176,7 @@ class AuthService {
           .update({
             full_name: invite.full_name || existingProfile.full_name,
             unit_id: invite.unit_id,
+            building_id: invite.units?.building_id,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingProfile.id)
@@ -206,6 +207,7 @@ class AuthService {
             chat_platform_id: facebookId,
             full_name: invite.full_name,
             unit_id: invite.unit_id,
+            building_id: invite.units?.building_id,
             is_manager: false
           })
           .select()
@@ -276,6 +278,7 @@ class AuthService {
         .from('profiles')
         .select(`
           *,
+          building_id,
           units (
             id,
             unit_number,

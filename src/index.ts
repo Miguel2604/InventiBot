@@ -10,6 +10,7 @@ import { authHandler } from './handlers/auth.handler';
 import { maintenanceHandler } from './handlers/maintenance.handler';
 import { bookingHandler } from './handlers/booking.handler';
 import { visitorPassHandler } from './handlers/visitor-pass.handler';
+import { announcementsHandler } from './handlers/announcements.handler';
 import { MessagingEvent, WebhookEvent } from './types/facebook';
 import { webhookLogger, mainLogger } from './utils/logger';
 
@@ -224,6 +225,10 @@ async function routePayload(senderId: string, payload: string) {
       await visitorPassHandler.listVisitorPasses(senderId);
       break;
 
+    case 'VIEW_ANNOUNCEMENTS':
+      await announcementsHandler.showAnnouncements(senderId);
+      break;
+
     default:
       // Check for specific handler prefixes
       if (payload.startsWith('FAQ_')) {
@@ -262,11 +267,11 @@ async function sendMainMenu(senderId: string) {
     : 'Hi! What would you like to do?';
 
   await facebookService.sendQuickReply(senderId, greeting, [
+    { title: '📢 Announcements', payload: 'VIEW_ANNOUNCEMENTS' },
     { title: 'ℹ️ Building Info', payload: 'FAQ_MAIN' },
     { title: '🔧 Report Issue', payload: 'MAINTENANCE_REQUEST' },
     { title: '📅 Book Amenity', payload: 'BOOK_AMENITY' },
-    { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' },
-    { title: '💬 Talk to Manager', payload: 'HANDOFF_REQUEST' }
+    { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' }
   ]);
 }
 
@@ -329,6 +334,52 @@ function logConversation(senderId: string, message: string, sender: 'user' | 'bo
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// Webhook endpoint for announcement notifications from Supabase
+app.post('/webhook/announcements', async (req: Request, res: Response) => {
+  try {
+    mainLogger.info('Announcement webhook received', {
+      type: req.body.type,
+      table: req.body.table,
+      announcementId: req.body.record?.id
+    });
+
+    // Verify the webhook is from Supabase
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    if (webhookSecret && req.headers['x-webhook-secret'] !== webhookSecret) {
+      mainLogger.warn('Webhook authentication failed');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Handle Supabase's default webhook payload format
+    const { type, table, record, old_record } = req.body;
+
+    // Check if this is an announcement being published
+    if (table === 'announcements' && record && record.is_published) {
+      // For UPDATE events, check if it's newly published
+      const isNewlyPublished = 
+        type === 'INSERT' || 
+        (type === 'UPDATE' && old_record && !old_record.is_published);
+
+      if (isNewlyPublished) {
+        // Process the announcement notification
+        const result = await announcementsHandler.processAnnouncementWebhook({
+          announcement: record,
+          building_id: record.building_id,
+          target_units: record.target_units
+        });
+
+        mainLogger.info('Announcement notifications sent', result);
+        return res.status(200).json({ success: true, ...result });
+      }
+    }
+
+    return res.status(200).json({ success: true, message: 'Webhook processed' });
+  } catch (error) {
+    mainLogger.error('Error processing announcement webhook', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Debug endpoint to check database and invites
@@ -401,6 +452,8 @@ if (process.env.NODE_ENV !== 'test') {
     console.log('  ✅ Maintenance requests');
     console.log('  ✅ Amenity bookings');
     console.log('  ✅ Visitor pass management');
+    console.log('  ✅ Building announcements');
+    console.log('  ✅ Real-time notifications');
     console.log('  ✅ Human handoff');
     console.log('  ✅ Structured logging for Render');
   });
