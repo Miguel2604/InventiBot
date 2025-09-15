@@ -104,7 +104,6 @@ export function addHoursInPhilippineTime(date: Date, hours: number): Date {
  * Convert time selections to proper UTC timestamps
  */
 export function convertTimeSelectionToUTC(visitDate: string, startTime: string): Date {
-  const today = new Date();
   let visitDateObj = new Date(visitDate);
   
   // Ensure we're working with the correct date
