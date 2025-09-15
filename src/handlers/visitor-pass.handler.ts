@@ -2,6 +2,12 @@ import { supabaseAdmin } from '../config/supabase';
 import { facebookService } from '../services/facebook.service';
 import { authService } from '../services/auth.service';
 import { mainLogger } from '../utils/logger';
+import { 
+  convertTimeSelectionToUTC, 
+  addHoursInPhilippineTime, 
+  formatPhilippineTime,
+  createPhilippineTime
+} from '../utils/timezone';
 
 interface VisitorPassSession {
   step: 'START' | 'NAME' | 'PHONE' | 'TYPE' | 'PURPOSE' | 'DATE' | 'TIME' | 'DURATION' | 'CONFIRM';
@@ -281,57 +287,23 @@ export class VisitorPassHandler {
 
     session.duration = parseFloat(payload.replace('DURATION_', ''));
     
-    // Calculate valid from and until times
-    const visitDate = new Date(session.visitDate!);
+    // Calculate valid from time using Philippine timezone
+    session.validFrom = convertTimeSelectionToUTC(session.visitDate!, session.startTime!);
     
-    // Set the start time based on user selection
-    switch (session.startTime) {
-      case 'now':
-        // Start from next 15 minutes
-        const now = new Date();
-        const minutes = now.getMinutes();
-        const roundedMinutes = Math.ceil(minutes / 15) * 15;
-        now.setMinutes(roundedMinutes, 0, 0);
-        session.validFrom = now;
-        break;
-      case 'morning':
-        visitDate.setHours(9, 0, 0, 0);
-        session.validFrom = visitDate;
-        break;
-      case 'afternoon':
-        visitDate.setHours(14, 0, 0, 0); // 2 PM
-        session.validFrom = visitDate;
-        break;
-      case 'evening':
-        visitDate.setHours(18, 0, 0, 0); // 6 PM
-        session.validFrom = visitDate;
-        break;
-      default:
-        // Default to 9 AM if something goes wrong
-        visitDate.setHours(9, 0, 0, 0);
-        session.validFrom = visitDate;
-    }
-    
-    // For all-day passes, override with full day hours
+    // For all-day passes, override with full day hours in Philippine time
     if (session.duration === 24) {
-      // All day: valid from 7 AM to 11 PM
-      const startOfDay = new Date(session.visitDate!);
-      startOfDay.setHours(7, 0, 0, 0);
-      session.validFrom = startOfDay;
-      
-      const endOfDay = new Date(session.visitDate!);
-      endOfDay.setHours(23, 0, 0, 0); // 11 PM
-      session.validUntil = endOfDay;
+      // All day: valid from 7 AM to 11 PM Philippine time
+      const visitDateObj = new Date(session.visitDate!);
+      session.validFrom = createPhilippineTime(7, 0, visitDateObj); // 7 AM Philippine time
+      session.validUntil = createPhilippineTime(23, 0, visitDateObj); // 11 PM Philippine time
     } else {
       // Calculate end time based on duration
-      const validUntil = new Date(session.validFrom);
-      validUntil.setTime(validUntil.getTime() + (session.duration * 60 * 60 * 1000));
-      session.validUntil = validUntil;
+      session.validUntil = addHoursInPhilippineTime(session.validFrom, session.duration);
     }
     
     session.step = 'CONFIRM';
     
-    // Create confirmation message
+    // Create confirmation message with Philippine time formatting
     const confirmMessage = `
 📋 **Visitor Pass Summary**
 
@@ -340,7 +312,7 @@ export class VisitorPassHandler {
 🏷️ Type: ${session.visitorType}
 📝 Purpose: ${session.purpose}
 📅 Date: ${session.visitDate}
-⏰ Valid: ${session.validFrom.toLocaleTimeString()} - ${session.validUntil.toLocaleTimeString()}
+⏰ Valid: ${formatPhilippineTime(session.validFrom, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
 
 Is this correct?`;
     
@@ -443,7 +415,7 @@ Share this code with ${session.visitorName}. They can use it to check in when th
 
 The pass is valid:
 📅 Date: ${session.visitDate}
-⏰ Time: ${session.validFrom!.toLocaleTimeString()} - ${session.validUntil!.toLocaleTimeString()}
+⏰ Time: ${formatPhilippineTime(session.validFrom!, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil!, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
 
 The building management has been notified about this visitor.`;
       
@@ -518,7 +490,7 @@ Your visitor pass has been validated.
 🏢 Building: ${buildingName}
 🏠 Unit: ${unitData?.unit_number || 'N/A'}
 
-⏰ This pass is valid until: ${new Date(data.valid_until).toLocaleString()}
+⏰ This pass is valid until: ${formatPhilippineTime(new Date(data.valid_until))} (Philippine Time)
 
 Please proceed to the building. Have a great visit!`;
       
@@ -591,7 +563,7 @@ Please proceed to the building. Have a great visit!`;
         
         message += `🎫 Code: ${pass.pass_code}\n`;
         message += `👤 Visitor: ${pass.visitor_name}\n`;
-        message += `📅 Valid: ${validFrom.toLocaleDateString()} ${validFrom.toLocaleTimeString()} - ${validUntil.toLocaleTimeString()}\n`;
+        message += `📅 Valid: ${formatPhilippineTime(validFrom, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(validUntil, { hour: '2-digit', minute: '2-digit', hour12: true })} (PH Time)\n`;
         message += `Status: ${pass.used_count > 0 ? `Used ${pass.used_count} time(s)` : 'Not used yet'}\n`;
         message += `---\n\n`;
       }
