@@ -14,7 +14,17 @@ import { announcementsHandler } from './handlers/announcements.handler';
 import { MessagingEvent, WebhookEvent } from './types/facebook';
 import { webhookLogger, mainLogger } from './utils/logger';
 
+// Import IoT module using require for now (since it's JS)
+const iotModule = require('./features/iot');
+let iotHandler: any = null;
+
 const app = express();
+
+// Initialize IoT module with database connection
+setTimeout(() => {
+  iotHandler = iotModule.initialize(supabase);
+  mainLogger.info('IoT module initialized');
+}, 1000);
 
 // Verify request came from Facebook (optional but recommended)
 function verifyRequestSignature(req: Request, _res: Response, buf: Buffer) {
@@ -169,6 +179,16 @@ async function handleMessagingEvent(event: MessagingEvent) {
       return;
     }
 
+    // Check if user is in IoT setup flow
+    if (iotHandler) {
+      const iotSession = iotHandler.getUserSession(senderId);
+      if (iotSession && (iotSession.state === 'URL_INPUT' || iotSession.state === 'TOKEN_INPUT')) {
+        const result = await iotHandler.handleTextInput(senderId, text);
+        await sendIoTResponse(senderId, result);
+        return;
+      }
+    }
+
     // Log conversation for analytics (simple version)
     logConversation(senderId, text, 'user');
 
@@ -229,6 +249,16 @@ async function routePayload(senderId: string, payload: string) {
       await announcementsHandler.showAnnouncements(senderId);
       break;
 
+    case 'IOT_MONITORING':
+      // Handle IoT entry point
+      if (iotHandler) {
+        const result = await iotHandler.handleAction(senderId, 'IOT_MONITORING');
+        await sendIoTResponse(senderId, result);
+      } else {
+        await facebookService.sendTextMessage(senderId, 'IoT module is not available at the moment. Please try again later.');
+      }
+      break;
+
     default:
       // Check for specific handler prefixes
       if (payload.startsWith('FAQ_')) {
@@ -252,6 +282,14 @@ async function routePayload(senderId: string, payload: string) {
         if (payload === 'CONFIRM_PASS_YES' || payload === 'CONFIRM_PASS_NO') {
           inVisitorPassFlow.delete(senderId);
         }
+      } else if (payload.startsWith('IOT_') || payload === 'IOT_MONITORING') {
+        // Handle IoT payloads
+        if (iotHandler) {
+          const result = await iotHandler.handleAction(senderId, payload);
+          await sendIoTResponse(senderId, result);
+        } else {
+          await facebookService.sendTextMessage(senderId, 'IoT module is not available at the moment. Please try again later.');
+        }
       } else {
         // Fallback to main menu
         await sendMainMenu(senderId);
@@ -271,8 +309,31 @@ async function sendMainMenu(senderId: string) {
     { title: 'ℹ️ Building Info', payload: 'FAQ_MAIN' },
     { title: '🔧 Report Issue', payload: 'MAINTENANCE_REQUEST' },
     { title: '📅 Book Amenity', payload: 'BOOK_AMENITY' },
-    { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' }
+    { title: '🎫 Visitor Pass', payload: 'VISITOR_PASS_MENU' },
+    { title: '🏠 IoT Devices', payload: 'IOT_MONITORING' }
   ]);
+}
+
+// IoT response handler
+async function sendIoTResponse(senderId: string, result: any) {
+  if (result.quickReplies && result.quickReplies.length > 0) {
+    // Send with quick reply buttons
+    const quickReplies = result.quickReplies.map((button: any) => ({
+      title: button.label,
+      payload: button.action
+    }));
+    await facebookService.sendQuickReply(senderId, result.message, quickReplies);
+  } else {
+    // Send as plain text
+    await facebookService.sendTextMessage(senderId, result.message);
+  }
+
+  // Check if we need to handle special actions
+  if (result.action === 'SHOW_DEVICE_MENU') {
+    // Trigger device menu display
+    const menuResult = await iotHandler.handleAction(senderId, 'IOT_MAIN_MENU');
+    await sendIoTResponse(senderId, menuResult);
+  }
 }
 
 // Visitor pass menu handler
