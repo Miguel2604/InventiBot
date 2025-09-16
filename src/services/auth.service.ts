@@ -156,7 +156,7 @@ class AuthService {
       }
 
       // Check if profile already exists with this Facebook ID
-      const { data: existingProfile } = await supabase
+      const { data: existingProfile } = await supabaseAdmin
         .from('profiles')
         .select('*')
         .eq('chat_platform_id', facebookId)
@@ -171,7 +171,7 @@ class AuthService {
         });
         
         // Update existing profile
-        const { data: updatedProfile, error: updateError } = await supabase
+        const { data: updatedProfile, error: updateError } = await supabaseAdmin
           .from('profiles')
           .update({
             full_name: invite.full_name || existingProfile.full_name,
@@ -201,7 +201,7 @@ class AuthService {
           unitId: invite.unit_id 
         });
         
-        const { data: newProfile, error: createError } = await supabase
+        const { data: newProfile, error: createError } = await supabaseAdmin
           .from('profiles')
           .insert({
             id: userId,
