@@ -177,6 +177,7 @@ class AuthService {
             full_name: invite.full_name || existingProfile.full_name,
             unit_id: invite.unit_id,
             building_id: invite.units?.building_id,
+            is_manager: false,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingProfile.id)
@@ -222,10 +223,14 @@ class AuthService {
         profile = newProfile;
       }
 
-      // Mark invite as claimed
+      // Mark invite as claimed with timestamp and claimed_by
       const { error: claimError } = await supabaseAdmin
         .from('invites')
-        .update({ status: 'claimed' })
+        .update({ 
+          status: 'claimed',
+          claimed_at: new Date().toISOString(),
+          claimed_by: profile.id
+        })
         .eq('id', invite.id);
         
       if (claimError) {
@@ -234,6 +239,22 @@ class AuthService {
         authLogger.warn('Failed to mark invite as claimed', { inviteId: invite.id });
       } else {
         dbLogger.dbLog('UPDATE', 'invites', true, null, { inviteId: invite.id, status: 'claimed' });
+      }
+
+      // Update unit occupancy status
+      if (invite.unit_id) {
+        const { error: unitError } = await supabaseAdmin
+          .from('units')
+          .update({ is_occupied: true })
+          .eq('id', invite.unit_id);
+        
+        if (unitError) {
+          dbLogger.dbLog('UPDATE', 'units', false, unitError);
+          authLogger.warn('Failed to update unit occupancy status', { unitId: invite.unit_id });
+        } else {
+          dbLogger.dbLog('UPDATE', 'units', true, null, { unitId: invite.unit_id, is_occupied: true });
+          authLogger.info('Unit marked as occupied', { unitId: invite.unit_id });
+        }
       }
 
       authLogger.authLog('validate_code_success', facebookId, code, true, {
