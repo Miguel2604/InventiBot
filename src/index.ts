@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import crypto from 'crypto';
 import { config } from './config/env';
-import { supabase } from './config/supabase';
+import { supabase, supabaseAdmin } from './config/supabase';
 import { facebookService } from './services/facebook.service';
 import { authService } from './services/auth.service';
 import { faqHandler } from './handlers/faq.handler';
@@ -16,13 +16,16 @@ import { webhookLogger, mainLogger } from './utils/logger';
 
 // Import IoT module using require for now (since it's JS)
 const iotModule = require('./features/iot');
+const IoTDatabaseAdapter = require('./features/iot/dbAdapter');
 let iotHandler: any = null;
 
 const app = express();
 
 // Initialize IoT module with database connection
 setTimeout(() => {
-  iotHandler = iotModule.initialize(supabase);
+  // Create database adapter for IoT module using admin client to bypass RLS
+  const iotDbAdapter = new IoTDatabaseAdapter(supabaseAdmin);
+  iotHandler = iotModule.initialize(iotDbAdapter);
   mainLogger.info('IoT module initialized');
 }, 1000);
 
