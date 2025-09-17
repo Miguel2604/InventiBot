@@ -1,192 +1,181 @@
-# InventiBot - Property Management Chatbot
+# 🏢 InventiBot - The Future of Property Management is Conversational
 
-An interactive Facebook Messenger chatbot for property management with quick reply buttons, designed to help residents with common inquiries and requests.
+> **Not just another chatbot. It's an entire property management platform living inside your favorite messaging app.**
 
-## Features Implemented
+[![Platform](https://img.shields.io/badge/Platform-Facebook%20Messenger-0084ff?style=for-the-badge&logo=messenger)](https://www.messenger.com/)
+[![Database](https://img.shields.io/badge/Database-Supabase-3ECF8E?style=for-the-badge&logo=supabase)](https://supabase.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-007ACC?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 
-### ✅ FAQ System with Quick Replies
-The FAQ feature provides a button-driven interface for accessing building information:
+## 🚀 **Revolutionizing Property Management Through Conversation**
 
-- **Hours of Operation** (Pool, Gym, Office)
-- **Policies** (Pets, Noise, Parking)
-- **Waste & Recycling** (Trash, Recycling, Bulk Items)
-- **Access & Keys** (Lost Key/Fob, Guest Access, Emergency Access)
+Welcome to **InventiBot** - where we've taken the entire property management experience and compressed it into a conversational interface. No app downloads. No complex UIs. No learning curve. Just natural conversation with powerful results.
 
-## Setup Instructions
+### 🎯 **The Problem We Solved**
 
-### 1. Prerequisites
-- Node.js 16+ and npm
-- Facebook Page and App
-- Supabase project (already configured)
+Traditional property management requires:
+- ❌ Multiple apps for different functions
+- ❌ Complex forms and interfaces
+- ❌ Training for residents and staff
+- ❌ Constant app updates and maintenance
+- ❌ Storage space on users' devices
 
-### 2. Environment Configuration
-The `.env` file is already configured with:
-- Facebook tokens (verify token, access token, app secret)
-- Supabase credentials
-- Server configuration
+### 💡 **Our Revolutionary Solution**
 
-### 3. Installation
-```bash
-# Install dependencies
-npm install
+**One chat interface. Infinite possibilities.**
+
+We've built what others said was impossible - a complete property management system that runs entirely through chat. Every feature, every function, every interaction - all through the messaging app that's already on your phone.
+
+---
+
+## 🌟 **Game-Changing Features**
+
+### 🏠 **Smart Home IoT Integration**
+*Control your entire home through chat*
+- 💡 **Lights**: "Turn off bedroom lights"
+- 🌡️ **Climate**: "Set temperature to 72°F"
+- 🔒 **Locks**: "Lock the front door"
+- 📊 **Sensors**: Real-time monitoring and alerts
+- 🔋 **Energy**: Track and optimize usage
+
+**Powered by Home Assistant integration** - connects with 1000+ smart device brands
+
+### 🎫 **Digital Visitor Pass System**
+*Secure, trackable, instant*
+- 📱 Generate unique QR codes for guests
+- ⏰ Time-limited access control
+- 👥 Visitor type categorization (Guest, Delivery, Contractor, Service)
+- 📊 Real-time visitor tracking dashboard
+- 🔔 Instant notifications to security
+
+### 🔧 **Intelligent Maintenance Management**
+*Report issues in seconds, not minutes*
+- 🎯 Smart categorization and priority routing
+- 🔄 Real-time status updates
+- ⏱️ SLA tracking and reporting
+
+### 📢 **Announcement Broadcasting**
+*Reach everyone instantly*
+- 🎯 Targeted messaging by unit, floor, or building
+- 📍 Priority levels (Urgent, High, Normal, Low)
+- ⏰ Scheduled announcements
+- 📊 Read receipts and engagement tracking
+
+### 📅 **Amenity Booking System**
+*Book facilities with a simple message*
+- 🏊 Pool, Gym, Party rooms, BBQ areas
+- 📆 Smart conflict detection
+- 🔄 Automatic reminders
+
+### 👤 **Resident Authentication**
+*Secure without being complicated*
+- 🔐 One-time invite codes
+- 🆔 Unit-based verification
+- 🔒 Role-based access control
+- 📱 No passwords to remember
+- 🛡️ Enterprise-grade security
+
+---
+
+## 🎮 **The Magic of Conversational UI**
+
+### **Quick Reply Buttons**
+No typing needed! Interactive buttons guide users through complex flows:
+```
+🏠 Main Menu
+├── 🔧 Report Issue
+├── 📅 Book Amenity
+├── 🎫 Create Visitor Pass
+├── 🏠 Control Smart Home
+├── 📢 View Announcements
+└── ❓ Get Help
 ```
 
-### 4. Facebook Messenger Configuration
+---
 
-#### Set up the Facebook profile (greeting, menu, etc.):
-```bash
-npm run setup
+## 🏆 **Why This is Revolutionary**
+
+### 📱 **Zero Friction Adoption**
+- **No app to download** - Use existing Messenger
+- **No learning curve** - Everyone knows how to chat
+- **No storage needed** - Runs in the cloud
+- **No updates required** - Always latest version
+
+### ⚡ **Lightning Fast Implementation**
+- Deploy to hundreds of units in minutes
+- Instant onboarding with invite codes
+- No training required for residents
+- Works on any device with Messenger
+
+### 💰 **Massive Cost Savings**
+- No mobile app development costs
+- No app store fees
+- No cross-platform maintenance
+- Reduced support tickets through automation
+
+### 🌍 **Universal Accessibility**
+- Works on any smartphone
+- No OS restrictions (iOS/Android)
+
+---
+
+#### 🤖 **InventiBot Core** (This Repository)
+The conversational engine that powers all resident interactions through Messenger.
+
+#### 🎛️ **[Admin Dashboard](https://github.com/Miguel2604/inventi-admin)**
+A powerful web-based control center for property managers featuring:
+- 👥 **Resident Management** - Invite codes, unit assignments, access control
+- 🔧 **Maintenance Tracking** - Visual workflow for all repair requests
+- 📢 **Announcement Center** - Broadcast and schedule messages
+- 🎫 **Visitor Management** - Track and approve visitor passes
+
+
+### **Architecture**
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Messenger     │────▶│   InventiBot    │────▶│    Supabase     │
+│   Interface     │◀────│   Core Engine   │◀────│    Database     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                       │                        │
+         │              ┌─────────────────┐              │
+         └──────────────│  Home Assistant │──────────────┘
+                        │   IoT Gateway   │
+                        └─────────────────┘
 ```
 
-#### Configure Webhook URL:
-1. Go to your Facebook App Dashboard
-2. Navigate to Messenger > Settings
-3. Add webhook callback URL: `https://YOUR_DOMAIN/webhook`
-4. Verify token: `inventisolve_verify_token` (from .env)
-5. Subscribe to: `messages`, `messaging_postbacks`
+### **Tech Stack**
+- **Runtime**: Node.js with TypeScript
+- **Database**: Supabase (PostgreSQL)
+- **Messaging**: Facebook Messenger Platform API
+- **IoT**: Home Assistant Integration
+- **Security**: Webhook verification, JWT tokens
+- **Testing**: Jest with 87% coverage
 
-### 5. Running the Bot
+---
 
-#### Development mode (with auto-reload):
-```bash
-npm run dev
-```
+For detailed setup instructions, see [HOWTO.md](./HOWTO.md)
 
-#### Production mode:
-```bash
-npm run build
-npm start
-```
+---
 
-## Testing the FAQ Feature
+## 📖 **Documentation**
 
-### Local Testing with ngrok
-To test locally with Facebook Messenger:
+- 📚 [Complete Documentation](./docs/README.md)
+- 🚀 [Setup Guide](./docs/setup/)
+- 🎯 [Feature Guides](./docs/features/)
+- 🔧 [Troubleshooting](./docs/troubleshooting/)
 
-1. Install ngrok: `npm install -g ngrok`
-2. Start the server: `npm run dev`
-3. In another terminal: `ngrok http 5000`
-4. Copy the HTTPS URL from ngrok
-5. Update webhook URL in Facebook App Dashboard to `https://YOUR_NGROK_URL/webhook`
+---
 
-### Testing Steps
+---
 
-1. **Send a message to your Facebook Page**
-   - The bot will respond with the main menu quick replies
+## 👥 **The Team**
 
-2. **Click "ℹ️ Building Info"**
-   - Shows FAQ categories: Hours, Policies, Waste & Recycling, Access & Keys
+Built with ❤️ by Neosolve who believe property management should be as easy as sending a message.
 
-3. **Select any category (e.g., "🕒 Hours of Operation")**
-   - Shows subcategories: Pool, Gym, Office
+---
 
-4. **Select a subcategory (e.g., "🏊 Pool")**
-   - Displays the answer with follow-up options
+## 📜 **License**
 
-### Quick Reply Navigation
-- **↩️ Back**: Returns to previous menu
-- **❓ Another Question**: Goes to FAQ main menu  
-- **💬 Talk to Manager**: Triggers handoff (placeholder for now)
-- **🏠 Main Menu**: Returns to main bot menu
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Project Structure
-```
-InventiBot/
-├── src/
-│   ├── config/
-│   │   ├── env.ts          # Environment configuration
-│   │   └── supabase.ts     # Supabase client & types
-│   ├── handlers/
-│   │   └── faq.handler.ts  # FAQ logic with quick replies
-│   ├── services/
-│   │   └── facebook.service.ts  # Facebook Messenger API
-│   ├── types/
-│   │   └── facebook.ts     # Facebook type definitions
-│   ├── index.ts            # Main server & webhook endpoints
-│   └── setup.ts            # Profile setup script
-├── .env                    # Environment variables (configured)
-├── package.json            # Dependencies
-├── tsconfig.json           # TypeScript configuration
-└── README.md              # This file
-```
-
-## Next Features to Implement
-
-Based on the chatbot context, the following features can be added:
-
-1. **Maintenance Request Automation** - Form-like flow for reporting issues
-2. **Amenity Booking System** - Calendar integration for booking facilities
-3. **Visitor Management** - Guest registration and notifications
-4. **Security Alerts** - Incident reporting and broadcast messages
-
-## Testing
-
-### Automated Testing
-
-The project includes comprehensive test coverage using Jest:
-
-```bash
-# Run all tests
-npm test
-
-# Run with coverage report
-npm run test:coverage
-
-# Run unit tests only
-npm run test:unit
-
-# Run integration tests only
-npm run test:integration
-
-# Watch mode for development
-npm run test:watch
-```
-
-### Manual API Testing
-
-Test the live API endpoints:
-
-```bash
-# Start the server
-npm run dev
-
-# In another terminal, run API tests
-npm run test:api
-```
-
-### Test Coverage
-
-- **Unit Tests**: FAQ handler, service methods
-- **Integration Tests**: Complete conversation flows, webhook endpoints
-- **Current Coverage**: ~87% statement coverage
-
-## API Endpoints
-
-- `GET /webhook` - Facebook webhook verification
-- `POST /webhook` - Receives and processes messages
-- `GET /health` - Health check endpoint
-
-## Troubleshooting
-
-### Bot not responding:
-1. Check server logs: `npm run dev`
-2. Verify webhook is subscribed in Facebook App
-3. Check access token is valid
-4. Ensure page is connected to the app
-
-### Quick replies not showing:
-1. Facebook Messenger may cache - try clearing app cache
-2. Ensure payload strings match exactly
-3. Check Facebook API version compatibility
-
-## Security Notes
-
-- Webhook signature verification is implemented
-- Environment variables are used for sensitive data
-- HTTPS is required for production deployment
-
-## Support
-
-For issues or questions about the implementation, please refer to:
-- [Facebook Messenger Platform Documentation](https://developers.facebook.com/docs/messenger-platform)
-- [Supabase Documentation](https://supabase.com/docs)
+---
