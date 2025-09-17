@@ -312,11 +312,6 @@ export class VisitorPassHandler {
     
     session.step = 'CONFIRM';
     
-    // Determine if this should be a single-use pass
-    const isSingleUse = session.visitorType === 'delivery' || 
-                        session.visitorType === 'contractor' ||
-                        session.duration <= 2; // 2 hours or less is single-use
-    
     // Create confirmation message with Philippine time formatting
     const confirmMessage = `
 📋 **Visitor Pass Summary**
@@ -327,7 +322,7 @@ export class VisitorPassHandler {
 📝 Purpose: ${session.purpose}
 📅 Date: ${session.visitDate}
 ⏰ Valid: ${formatPhilippineTime(session.validFrom, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
-${isSingleUse ? '⚠️ **Single-Use Pass**: This pass can only be used once' : '♻️ **Multi-Use Pass**: This pass can be used multiple times during the valid period'}
+⚠️ **Single-Use Pass**: This pass can only be used ONCE and will expire after first use
 
 Is this correct?`;
     
@@ -396,12 +391,7 @@ Is this correct?`;
       
       const passCode = codeData;
       
-      // Determine if this should be a single-use pass
-      const isSingleUse = session.visitorType === 'delivery' || 
-                          session.visitorType === 'contractor' ||
-                          (session.duration && session.duration <= 2); // 2 hours or less is single-use
-      
-      // Create the pass
+      // Create the pass (ALL passes are now single-use)
       const { data: pass, error: passError } = await supabaseAdmin
         .from('visitor_passes')
         .insert({
@@ -415,7 +405,7 @@ Is this correct?`;
           building_id: buildingId,
           valid_from: session.validFrom?.toISOString(),
           valid_until: session.validUntil?.toISOString(),
-          single_use: isSingleUse,
+          single_use: true, // Always single-use
           used_count: 0 // Explicitly set to 0 initially
         })
         .select()
@@ -437,7 +427,8 @@ Share this code with ${session.visitorName}. They can use it to check in when th
 The pass is valid:
 📅 Date: ${session.visitDate}
 ⏰ Time: ${formatPhilippineTime(session.validFrom!, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil!, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
-${isSingleUse ? '⚠️ **Important**: This is a SINGLE-USE pass and will expire after first use.' : '♻️ This pass can be used multiple times during the valid period.'}
+
+⚠️ **IMPORTANT**: This is a SINGLE-USE pass. It can only be used ONCE and will become invalid after the first check-in.
 
 The building management has been notified about this visitor.`;
       
@@ -450,7 +441,7 @@ The building management has been notified about this visitor.`;
         visitorName: session.visitorName,
         visitorType: session.visitorType,
         duration: session.duration,
-        singleUse: isSingleUse,
+        singleUse: true, // Always true now
         validFrom: session.validFrom,
         validUntil: session.validUntil
       });
@@ -509,15 +500,12 @@ The building management has been notified about this visitor.`;
         usedAt: passData.used_at
       });
       
-      // Check if pass is already used (for single-use passes)
+      // Check if pass is already used (ALL passes are single-use)
       // Check both used_count and status for reliability
-      if (passData.single_use && (passData.used_count > 0 || passData.status === 'used')) {
-        const passType = passData.visitor_type === 'delivery' ? 'delivery' : 
-                        passData.visitor_type === 'contractor' ? 'contractor visit' : 
-                        'one-time access';
+      if (passData.used_count > 0 || passData.status === 'used') {
         await facebookService.sendTextMessage(
           senderId,
-          `❌ This visitor pass has already been used and cannot be used again.\n\nThis was a single-use pass for ${passType}.\n\nPass Code: ${passData.pass_code}\nVisitor: ${passData.visitor_name}\nUsed at: ${passData.used_at ? formatPhilippineTime(new Date(passData.used_at)) : 'Unknown time'}`
+          `❌ This visitor pass has already been used and cannot be used again.\n\nAll visitor passes are single-use only.\n\nPass Code: ${passData.pass_code}\nVisitor: ${passData.visitor_name}\nType: ${passData.visitor_type}\nUsed at: ${passData.used_at ? formatPhilippineTime(new Date(passData.used_at)) : 'Unknown time'}`
         );
         return { success: false, error: 'Pass already used' };
       }
@@ -550,13 +538,13 @@ The building management has been notified about this visitor.`;
       }
       
       // Update pass usage count and used timestamp
+      // ALL passes are now single-use, so always mark as used
       const { error: updateError } = await supabaseAdmin
         .from('visitor_passes')
         .update({
-          used_count: passData.used_count + 1,
+          used_count: 1, // Set to 1 since it can only be used once
           used_at: new Date().toISOString(),
-          // If single use, mark as used
-          status: passData.single_use ? 'used' : 'active'
+          status: 'used' // Always mark as used after first use
         })
         .eq('id', passData.id);
       
@@ -587,7 +575,8 @@ Your visitor pass has been validated.
 🏠 Unit: ${unitNumber}
 
 ⏰ This pass is valid until: ${formatPhilippineTime(new Date(passData.valid_until))} (Philippine Time)
-${passData.single_use ? '\n⚠️ Note: This is a single-use pass and has now been consumed.' : ''}
+
+✅ This single-use pass has now been successfully used and is no longer valid.
 
 How can I assist you today?`;
       

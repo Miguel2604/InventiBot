@@ -6,7 +6,14 @@ The visitor pass system had several critical issues:
 2. After a visitor claimed their pass code, the bot would not remember them and ask for authentication again
 3. Visitors had access to resident features they shouldn't be able to use
 
-## Changes Implemented
+## Changes Implemented (Updated: All Passes Single-Use)
+
+### LATEST UPDATE: All visitor passes are now SINGLE-USE ONLY
+- Every visitor pass can only be used once, regardless of type or duration
+- After first use, the pass is immediately marked as 'used' and cannot be reused
+- Clear messaging throughout the system about single-use nature
+
+## Previous Changes
 
 ### 1. Auth Service Enhancements (`src/services/auth.service.ts`)
 - Added `VisitorSession` interface to track visitor sessions
