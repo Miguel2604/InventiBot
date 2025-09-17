@@ -312,6 +312,11 @@ export class VisitorPassHandler {
     
     session.step = 'CONFIRM';
     
+    // Determine if this should be a single-use pass
+    const isSingleUse = session.visitorType === 'delivery' || 
+                        session.visitorType === 'contractor' ||
+                        session.duration <= 2; // 2 hours or less is single-use
+    
     // Create confirmation message with Philippine time formatting
     const confirmMessage = `
 📋 **Visitor Pass Summary**
@@ -322,6 +327,7 @@ export class VisitorPassHandler {
 📝 Purpose: ${session.purpose}
 📅 Date: ${session.visitDate}
 ⏰ Valid: ${formatPhilippineTime(session.validFrom, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
+${isSingleUse ? '⚠️ **Single-Use Pass**: This pass can only be used once' : '♻️ **Multi-Use Pass**: This pass can be used multiple times during the valid period'}
 
 Is this correct?`;
     
@@ -390,6 +396,11 @@ Is this correct?`;
       
       const passCode = codeData;
       
+      // Determine if this should be a single-use pass
+      const isSingleUse = session.visitorType === 'delivery' || 
+                          session.visitorType === 'contractor' ||
+                          (session.duration && session.duration <= 2); // 2 hours or less is single-use
+      
       // Create the pass
       const { data: pass, error: passError } = await supabaseAdmin
         .from('visitor_passes')
@@ -404,7 +415,8 @@ Is this correct?`;
           building_id: buildingId,
           valid_from: session.validFrom?.toISOString(),
           valid_until: session.validUntil?.toISOString(),
-          single_use: session.visitorType === 'delivery' // Delivery passes are single use
+          single_use: isSingleUse,
+          used_count: 0 // Explicitly set to 0 initially
         })
         .select()
         .single();
@@ -425,6 +437,7 @@ Share this code with ${session.visitorName}. They can use it to check in when th
 The pass is valid:
 📅 Date: ${session.visitDate}
 ⏰ Time: ${formatPhilippineTime(session.validFrom!, { hour: '2-digit', minute: '2-digit', hour12: true })} - ${formatPhilippineTime(session.validUntil!, { hour: '2-digit', minute: '2-digit', hour12: true })} (Philippine Time)
+${isSingleUse ? '⚠️ **Important**: This is a SINGLE-USE pass and will expire after first use.' : '♻️ This pass can be used multiple times during the valid period.'}
 
 The building management has been notified about this visitor.`;
       
@@ -432,8 +445,14 @@ The building management has been notified about this visitor.`;
       
       mainLogger.info('Visitor pass created', {
         passId: pass.id,
+        passCode: passCode,
         tenantId: userSession.id,
-        visitorName: session.visitorName
+        visitorName: session.visitorName,
+        visitorType: session.visitorType,
+        duration: session.duration,
+        singleUse: isSingleUse,
+        validFrom: session.validFrom,
+        validUntil: session.validUntil
       });
       
       return { 
@@ -468,6 +487,10 @@ The building management has been notified about this visitor.`;
         .single();
       
       if (passError || !passData) {
+        mainLogger.warn('Invalid visitor pass code attempt', {
+          passCode: cleanCode,
+          error: passError?.message
+        });
         await facebookService.sendTextMessage(
           senderId,
           `❌ Invalid pass code. Please check your code and try again.`
@@ -475,11 +498,26 @@ The building management has been notified about this visitor.`;
         return { success: false, error: 'Invalid pass code' };
       }
       
+      // Log pass details for debugging
+      mainLogger.info('Visitor pass found', {
+        passCode: cleanCode,
+        visitorName: passData.visitor_name,
+        visitorType: passData.visitor_type,
+        singleUse: passData.single_use,
+        usedCount: passData.used_count,
+        status: passData.status,
+        usedAt: passData.used_at
+      });
+      
       // Check if pass is already used (for single-use passes)
-      if (passData.single_use && passData.used_count > 0) {
+      // Check both used_count and status for reliability
+      if (passData.single_use && (passData.used_count > 0 || passData.status === 'used')) {
+        const passType = passData.visitor_type === 'delivery' ? 'delivery' : 
+                        passData.visitor_type === 'contractor' ? 'contractor visit' : 
+                        'one-time access';
         await facebookService.sendTextMessage(
           senderId,
-          `❌ This visitor pass has already been used and cannot be used again.\n\nThis was a single-use pass for ${passData.visitor_type === 'delivery' ? 'delivery' : 'one-time access'}.`
+          `❌ This visitor pass has already been used and cannot be used again.\n\nThis was a single-use pass for ${passType}.\n\nPass Code: ${passData.pass_code}\nVisitor: ${passData.visitor_name}\nUsed at: ${passData.used_at ? formatPhilippineTime(new Date(passData.used_at)) : 'Unknown time'}`
         );
         return { success: false, error: 'Pass already used' };
       }
