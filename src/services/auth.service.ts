@@ -2,12 +2,48 @@ import { supabase, supabaseAdmin, Profile } from '../config/supabase';
 import crypto from 'crypto';
 import { authLogger, dbLogger } from '../utils/logger';
 
+interface VisitorSession {
+  visitorName: string;
+  unitId: string;
+  validUntil: string;
+  passCode: string;
+  checkedInAt: string;
+}
+
 class AuthService {
+  // Track visitor sessions by Facebook ID
+  private visitorSessions: Map<string, VisitorSession> = new Map();
   /**
    * Check if a user is authenticated
    */
-  async isAuthenticated(facebookId: string): Promise<{ authenticated: boolean; profile?: Profile }> {
+  async isAuthenticated(facebookId: string): Promise<{ 
+    authenticated: boolean; 
+    profile?: Profile;
+    isVisitor?: boolean;
+    visitorSession?: VisitorSession;
+  }> {
     try {
+      // First check if this is a visitor session
+      const visitorSession = this.visitorSessions.get(facebookId);
+      if (visitorSession) {
+        // Check if visitor pass is still valid
+        if (new Date(visitorSession.validUntil) > new Date()) {
+          authLogger.debug('Valid visitor session found', { 
+            facebookId,
+            visitorName: visitorSession.visitorName 
+          });
+          return { 
+            authenticated: true, 
+            isVisitor: true,
+            visitorSession 
+          };
+        } else {
+          // Visitor pass expired, remove session
+          this.visitorSessions.delete(facebookId);
+          authLogger.info('Visitor session expired', { facebookId });
+        }
+      }
+      
       authLogger.debug('Checking authentication', { facebookId });
       
       const { data: profile, error } = await supabase
@@ -37,7 +73,7 @@ class AuthService {
         profileId: profile.id,
         hasUnit: !!profile.unit_id 
       });
-      return { authenticated: true, profile };
+      return { authenticated: true, profile, isVisitor: false };
     } catch (error) {
       authLogger.error('Error checking authentication', error, { facebookId });
       return { authenticated: false };
@@ -368,6 +404,40 @@ class AuthService {
     } catch (error) {
       authLogger.error('Error logging auth attempt', error);
     }
+  }
+
+  /**
+   * Create a visitor session after successful pass validation
+   */
+  createVisitorSession(facebookId: string, visitorData: VisitorSession): void {
+    this.visitorSessions.set(facebookId, visitorData);
+    authLogger.info('Visitor session created', {
+      facebookId,
+      visitorName: visitorData.visitorName,
+      validUntil: visitorData.validUntil
+    });
+  }
+
+  /**
+   * Check if a user is a visitor
+   */
+  isVisitor(facebookId: string): boolean {
+    return this.visitorSessions.has(facebookId);
+  }
+
+  /**
+   * Get visitor session data
+   */
+  getVisitorSession(facebookId: string): VisitorSession | undefined {
+    return this.visitorSessions.get(facebookId);
+  }
+
+  /**
+   * Clear visitor session
+   */
+  clearVisitorSession(facebookId: string): void {
+    this.visitorSessions.delete(facebookId);
+    authLogger.info('Visitor session cleared', { facebookId });
   }
 }
 

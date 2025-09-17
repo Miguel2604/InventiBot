@@ -110,7 +110,8 @@ async function handleMessagingEvent(event: MessagingEvent) {
   webhookLogger.info('Authentication check', {
     senderId,
     authenticated: authStatus.authenticated,
-    hasProfile: !!authStatus.profile
+    hasProfile: !!authStatus.profile,
+    isVisitor: authStatus.isVisitor
   });
 
   if (payload) {
@@ -139,6 +140,12 @@ async function handleMessagingEvent(event: MessagingEvent) {
       return;
     }
 
+    // Handle visitor-specific payloads
+    if (authStatus.isVisitor) {
+      await handleVisitorPayload(senderId, payload, authStatus.visitorSession);
+      return;
+    }
+    
     // Require authentication for other payloads
     if (!authStatus.authenticated) {
       awaitingAuth.set(senderId, true);
@@ -153,6 +160,12 @@ async function handleMessagingEvent(event: MessagingEvent) {
   // Handle text messages
   if (event.message?.text) {
     const text = event.message.text.trim();
+
+    // Handle visitor text messages
+    if (authStatus.isVisitor) {
+      await sendVisitorMenu(senderId, authStatus.visitorSession!);
+      return;
+    }
 
     // If user is not authenticated, do not treat arbitrary text as an access code by default.
     // Instead, use any free-text (e.g., "hello", "hi", "get started") as a start trigger to prompt for the code.
@@ -393,6 +406,73 @@ function logConversation(senderId: string, message: string, sender: 'user' | 'bo
     sender,
     message: message.substring(0, 100)
   });
+}
+
+// Visitor menu handler
+async function sendVisitorMenu(senderId: string, visitorSession: any) {
+  await facebookService.sendQuickReply(
+    senderId,
+    `Hi ${visitorSession.visitorName}! As a visitor, you have limited access to building features:`,
+    [
+      { title: 'ℹ️ Building Info', payload: 'VISITOR_BUILDING_INFO' },
+      { title: '📍 Get Directions', payload: 'VISITOR_DIRECTIONS' },
+      { title: '☎️ Contact Info', payload: 'VISITOR_CONTACT' },
+      { title: '🚪 Exit', payload: 'VISITOR_EXIT' }
+    ]
+  );
+}
+
+// Handle visitor-specific payloads
+async function handleVisitorPayload(senderId: string, payload: string, visitorSession: any) {
+  switch (payload) {
+    case 'VISITOR_BUILDING_INFO':
+      await facebookService.sendTextMessage(
+        senderId,
+        `ℹ️ **Building Information**\n\n` +
+        `You are visiting a unit in this building. For detailed information, please ask the resident you're visiting.\n\n` +
+        `⚠️ As a visitor, you don't have access to resident-specific features like maintenance requests or amenity bookings.`
+      );
+      await sendVisitorMenu(senderId, visitorSession);
+      break;
+      
+    case 'VISITOR_DIRECTIONS':
+      await facebookService.sendTextMessage(
+        senderId,
+        `📍 **Building Directions**\n\n` +
+        `Please proceed to the lobby and check in with security. Show them your visitor pass code.\n\n` +
+        `Your pass is valid until: ${new Date(visitorSession.validUntil).toLocaleString()}`
+      );
+      await sendVisitorMenu(senderId, visitorSession);
+      break;
+      
+    case 'VISITOR_CONTACT':
+      await facebookService.sendTextMessage(
+        senderId,
+        `☎️ **Contact Information**\n\n` +
+        `Building Security: (555) 123-4567\n` +
+        `Emergency: 911\n\n` +
+        `For non-emergency assistance, please contact the resident you're visiting.`
+      );
+      await sendVisitorMenu(senderId, visitorSession);
+      break;
+      
+    case 'VISITOR_EXIT':
+      authService.clearVisitorSession(senderId);
+      await facebookService.sendTextMessage(
+        senderId,
+        `👋 Thank you for visiting! Your visitor session has been ended.\n\n` +
+        `Have a great day!`
+      );
+      break;
+      
+    default:
+      // For any other payload, remind them they're a visitor
+      await facebookService.sendTextMessage(
+        senderId,
+        `⚠️ Sorry, this feature is not available to visitors. You don't have access to resident features.`
+      );
+      await sendVisitorMenu(senderId, visitorSession);
+  }
 }
 
 // Health check

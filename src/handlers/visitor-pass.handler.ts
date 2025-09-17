@@ -32,12 +32,21 @@ export class VisitorPassHandler {
     try {
       // Check if user is authenticated
       const authStatus = await authService.isAuthenticated(senderId);
-      if (!authStatus.authenticated || !authStatus.profile) {
+      if (!authStatus.authenticated || (!authStatus.profile && !authStatus.isVisitor)) {
         await facebookService.sendTextMessage(
           senderId,
           "Please authenticate first before creating a visitor pass."
         );
         return { success: false, error: 'Not authenticated' };
+      }
+      
+      // Check if user is a visitor (visitors cannot create passes)
+      if (authStatus.isVisitor) {
+        await facebookService.sendTextMessage(
+          senderId,
+          "⚠️ Sorry, as a visitor you don't have access to create visitor passes. This feature is only available to residents.\n\nPlease contact the resident you're visiting if you need assistance."
+        );
+        return { success: false, error: 'Visitors cannot create passes' };
       }
 
       // Get or create visitor pass session
@@ -451,63 +460,126 @@ The building management has been notified about this visitor.`;
       // Clean up the pass code
       const cleanCode = passCode.trim().toUpperCase();
       
-      // Validate pass using database function
-      const { data, error } = await supabaseAdmin
-        .rpc('use_visitor_pass', { p_pass_code: cleanCode });
-      
-      if (error) {
-        mainLogger.error('Error validating visitor pass:', error);
-        await facebookService.sendTextMessage(
-          senderId,
-          "Sorry, there was an error validating your pass. Please try again."
-        );
-        return { success: false, error: 'Validation error' };
-      }
-      
-      if (!data.success) {
-        await facebookService.sendTextMessage(
-          senderId,
-          `❌ ${data.error}\n\nPlease check your pass code and try again.`
-        );
-        return { success: false, error: data.error };
-      }
-      
-      // Get unit details for welcome message
-      const { data: unitData } = await supabaseAdmin
-        .from('units')
-        .select('unit_number, buildings(name)')
-        .eq('id', data.unit_id)
+      // First check if the pass exists and get its details
+      const { data: passData, error: passError } = await supabaseAdmin
+        .from('visitor_passes')
+        .select('*, units(unit_number, buildings(name))')
+        .eq('pass_code', cleanCode)
         .single();
       
-      const buildingName = (unitData as any)?.buildings?.name || 'N/A';
+      if (passError || !passData) {
+        await facebookService.sendTextMessage(
+          senderId,
+          `❌ Invalid pass code. Please check your code and try again.`
+        );
+        return { success: false, error: 'Invalid pass code' };
+      }
+      
+      // Check if pass is already used (for single-use passes)
+      if (passData.single_use && passData.used_count > 0) {
+        await facebookService.sendTextMessage(
+          senderId,
+          `❌ This visitor pass has already been used and cannot be used again.\n\nThis was a single-use pass for ${passData.visitor_type === 'delivery' ? 'delivery' : 'one-time access'}.`
+        );
+        return { success: false, error: 'Pass already used' };
+      }
+      
+      // Check if pass is expired
+      if (new Date(passData.valid_until) < new Date()) {
+        await facebookService.sendTextMessage(
+          senderId,
+          `❌ This visitor pass has expired.\n\nThe pass was valid until: ${formatPhilippineTime(new Date(passData.valid_until))} (Philippine Time)`
+        );
+        return { success: false, error: 'Pass expired' };
+      }
+      
+      // Check if pass is not yet valid
+      if (new Date(passData.valid_from) > new Date()) {
+        await facebookService.sendTextMessage(
+          senderId,
+          `❌ This visitor pass is not yet valid.\n\nThe pass will be valid from: ${formatPhilippineTime(new Date(passData.valid_from))} (Philippine Time)`
+        );
+        return { success: false, error: 'Pass not yet valid' };
+      }
+      
+      // Check if pass status is active
+      if (passData.status !== 'active') {
+        await facebookService.sendTextMessage(
+          senderId,
+          `❌ This visitor pass is ${passData.status}. Please contact the resident who created this pass.`
+        );
+        return { success: false, error: `Pass is ${passData.status}` };
+      }
+      
+      // Update pass usage count and used timestamp
+      const { error: updateError } = await supabaseAdmin
+        .from('visitor_passes')
+        .update({
+          used_count: passData.used_count + 1,
+          used_at: new Date().toISOString(),
+          // If single use, mark as used
+          status: passData.single_use ? 'used' : 'active'
+        })
+        .eq('id', passData.id);
+      
+      if (updateError) {
+        mainLogger.error('Error updating pass usage:', updateError);
+        // Continue anyway, the check-in is more important
+      }
+      
+      // Create visitor session in auth service
+      authService.createVisitorSession(senderId, {
+        visitorName: passData.visitor_name,
+        unitId: passData.unit_id,
+        validUntil: passData.valid_until,
+        passCode: cleanCode,
+        checkedInAt: new Date().toISOString()
+      });
+      
+      const buildingName = (passData.units as any)?.buildings?.name || 'N/A';
+      const unitNumber = (passData.units as any)?.unit_number || 'N/A';
       
       const welcomeMessage = `
-✅ **Welcome, ${data.visitor_name}!**
+✅ **Welcome, ${passData.visitor_name}!**
 
 Your visitor pass has been validated.
 
 📍 You're authorized to visit:
 🏢 Building: ${buildingName}
-🏠 Unit: ${unitData?.unit_number || 'N/A'}
+🏠 Unit: ${unitNumber}
 
-⏰ This pass is valid until: ${formatPhilippineTime(new Date(data.valid_until))} (Philippine Time)
+⏰ This pass is valid until: ${formatPhilippineTime(new Date(passData.valid_until))} (Philippine Time)
+${passData.single_use ? '\n⚠️ Note: This is a single-use pass and has now been consumed.' : ''}
 
-Please proceed to the building. Have a great visit!`;
+How can I assist you today?`;
       
       await facebookService.sendTextMessage(senderId, welcomeMessage);
       
+      // Send visitor menu after welcome message
+      await facebookService.sendQuickReply(
+        senderId,
+        'As a visitor, you have limited access to building features:',
+        [
+          { title: 'ℹ️ Building Info', payload: 'VISITOR_BUILDING_INFO' },
+          { title: '📍 Get Directions', payload: 'VISITOR_DIRECTIONS' },
+          { title: '☎️ Contact Info', payload: 'VISITOR_CONTACT' },
+          { title: '🚪 Exit', payload: 'VISITOR_EXIT' }
+        ]
+      );
+      
       mainLogger.info('Visitor checked in', {
-        visitorName: data.visitor_name,
-        unitId: data.unit_id,
-        passCode: cleanCode
+        visitorName: passData.visitor_name,
+        unitId: passData.unit_id,
+        passCode: cleanCode,
+        singleUse: passData.single_use
       });
       
       return { 
         success: true, 
         data: {
-          visitorName: data.visitor_name,
-          unitId: data.unit_id,
-          validUntil: data.valid_until
+          visitorName: passData.visitor_name,
+          unitId: passData.unit_id,
+          validUntil: passData.valid_until
         }
       };
       
@@ -527,14 +599,25 @@ Please proceed to the building. Have a great visit!`;
   async listVisitorPasses(senderId: string) {
     try {
       const authStatus = await authService.isAuthenticated(senderId);
-      if (!authStatus.authenticated || !authStatus.profile) {
+      if (!authStatus.authenticated || (!authStatus.profile && !authStatus.isVisitor)) {
         await facebookService.sendTextMessage(
           senderId,
           "Please authenticate first to view your visitor passes."
         );
         return { success: false, error: 'Not authenticated' };
       }
-      const session = authStatus.profile;
+      
+      // Check if user is a visitor
+      if (authStatus.isVisitor) {
+        await facebookService.sendTextMessage(
+          senderId,
+          "⚠️ Sorry, as a visitor you don't have access to view visitor passes. This feature is only available to residents."
+        );
+        return { success: false, error: 'Visitors cannot view passes' };
+      }
+      
+      // At this point we know profile exists (not a visitor, authenticated)
+      const session = authStatus.profile!;
 
       const { data: passes, error } = await supabaseAdmin
         .from('visitor_passes')
