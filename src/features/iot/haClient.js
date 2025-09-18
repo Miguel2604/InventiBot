@@ -86,14 +86,27 @@ class HomeAssistantClient {
                 const entityName = entityId.split('.')[1];
                 const attributes = entity.attributes || {};
                 
-                // Exclude system domains
+                // Exclude system domains and internal entities
                 const excludedDomains = [
                     'automation', 'zone', 'sun', 'weather', 'person', 'device_tracker',
-                    'script', 'scene', 'input_text', 'input_datetime', 'timer',
-                    'counter', 'group', 'persistent_notification', 'update'
+                    'script', 'scene', 'input_text', 'input_datetime', 'timer', 'input_number',
+                    'counter', 'group', 'persistent_notification', 'update', 'input_select',
+                    'input_boolean', 'todo', 'tts', 'stt', 'conversation', 'schedule',
+                    'tag', 'image_processing', 'device_automation'
                 ];
                 
                 if (excludedDomains.includes(domain)) {
+                    return false;
+                }
+                
+                // Filter out entities that are HA internal or helpers
+                // Home Assistant itself, backup services, shopping list, etc. shouldn't show
+                const internalEntities = [
+                    'home_assistant', 'backup_', 'shopping_list', 'google_translate',
+                    'turn_off_in', 'turn_on_in', 'timer_', 'schedule_'
+                ];
+                
+                if (internalEntities.some(pattern => entityName.includes(pattern))) {
                     return false;
                 }
                 
@@ -167,7 +180,7 @@ class HomeAssistantClient {
                     return false;
                 }
                 
-                // Keep all controllable devices (lights, switches, etc.)
+                // Keep only controllable devices (lights, switches, etc.)
                 const controllableDomains = ['light', 'switch', 'climate', 'fan', 'media_player', 'cover', 'lock', 'camera', 'vacuum'];
                 if (controllableDomains.includes(domain)) {
                     // But filter out LED controls and similar auxiliary switches
@@ -177,7 +190,8 @@ class HomeAssistantClient {
                     return true;
                 }
                 
-                return true;
+                // Don't include unknown domains - only include what we explicitly support
+                return false;
             });
 
             return filteredEntities;
