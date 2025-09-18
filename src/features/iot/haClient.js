@@ -79,11 +79,105 @@ class HomeAssistantClient {
                 }
             );
 
-            // Filter out some system entities that users typically don't need to control
+            // Filter out system entities and diagnostic sensors that users typically don't need to control
             const filteredEntities = response.data.filter(entity => {
                 const domain = entity.entity_id.split('.')[0];
-                const excludedDomains = ['automation', 'zone', 'sun', 'weather', 'person', 'device_tracker'];
-                return !excludedDomains.includes(domain);
+                const entityId = entity.entity_id.toLowerCase();
+                const entityName = entityId.split('.')[1];
+                const attributes = entity.attributes || {};
+                
+                // Exclude system domains
+                const excludedDomains = [
+                    'automation', 'zone', 'sun', 'weather', 'person', 'device_tracker',
+                    'script', 'scene', 'input_text', 'input_datetime', 'timer',
+                    'counter', 'group', 'persistent_notification', 'update'
+                ];
+                
+                if (excludedDomains.includes(domain)) {
+                    return false;
+                }
+                
+                // Filter out diagnostic and configuration entities
+                const diagnosticPatterns = [
+                    '_enabled$',           // auto-off enabled, auto-update enabled, etc.
+                    '_config$',            // configuration entities
+                    '_diagnostic$',        // diagnostic entities  
+                    '_status$',            // status entities
+                    '_last_',              // last updated, last seen, etc.
+                    '_battery$',           // battery level sensors (unless it's the main entity)
+                    '_rssi$',              // signal strength
+                    '_linkquality$',       // link quality
+                    '_voltage$',           // voltage sensors
+                    '_current$',           // current sensors
+                    '_power$',             // power sensors (unless main power switch)
+                    '_energy$',            // energy sensors
+                    '_temperature$',       // temperature sensors (unless it's a thermostat)
+                    '_humidity$',          // humidity sensors (unless main sensor)
+                    '_pressure$',          // pressure sensors
+                    '_illuminance$',       // light sensors
+                    '_update_available$',  // update available sensors
+                    '_restart$',           // restart switches
+                    '_identify$',          // identify switches
+                    'wifi_',               // WiFi related sensors
+                    'uptime',              // uptime sensors
+                    'heap_',               // memory sensors
+                    'flash_',              // flash memory sensors
+                ];
+                
+                // Check if entity matches diagnostic patterns
+                const isDiagnostic = diagnosticPatterns.some(pattern => {
+                    const regex = new RegExp(pattern);
+                    return regex.test(entityName);
+                });
+                
+                if (isDiagnostic) {
+                    return false;
+                }
+                
+                // Filter out entities marked as diagnostic in attributes
+                if (attributes.entity_category === 'diagnostic' || 
+                    attributes.entity_category === 'config') {
+                    return false;
+                }
+                
+                // For sensors, only keep main sensors, not auxiliary ones
+                if (domain === 'sensor' || domain === 'binary_sensor') {
+                    // Keep climate-related sensors if they're the main device
+                    if (entityName.includes('temperature') || entityName.includes('humidity')) {
+                        // Only keep if it seems like a main sensor, not a diagnostic one
+                        if (!entityName.includes('_') || entityName.endsWith('_temperature') || entityName.endsWith('_humidity')) {
+                            return true;
+                        }
+                        return false;
+                    }
+                    
+                    // Keep motion, door, window sensors as they're primary devices
+                    const primarySensorTypes = ['motion', 'door', 'window', 'occupancy', 'contact', 'smoke', 'leak'];
+                    if (primarySensorTypes.some(type => entityName.includes(type))) {
+                        return true;
+                    }
+                    
+                    // For other sensors, be more selective
+                    // Keep sensors that don't seem like diagnostic ones
+                    if (!entityName.includes('_') || 
+                        entityName.match(/^[^_]+_(sensor|detector|monitor)$/)) {
+                        return true;
+                    }
+                    
+                    return false;
+                }
+                
+                // Keep all controllable devices (lights, switches, etc.)
+                const controllableDomains = ['light', 'switch', 'climate', 'fan', 'media_player', 'cover', 'lock', 'camera', 'vacuum'];
+                if (controllableDomains.includes(domain)) {
+                    // But filter out LED controls and similar auxiliary switches
+                    if (domain === 'switch' && (entityName.includes('_led') || entityName.includes('_indicator'))) {
+                        return false;
+                    }
+                    return true;
+                }
+                
+                return true;
             });
 
             return filteredEntities;
