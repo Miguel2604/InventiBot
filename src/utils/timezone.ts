@@ -102,6 +102,7 @@ export function addHoursInPhilippineTime(date: Date, hours: number): Date {
 
 /**
  * Convert time selections to proper UTC timestamps
+ * For 'now' option, uses the current time immediately without rounding
  */
 export function convertTimeSelectionToUTC(visitDate: string, startTime: string): Date {
   let visitDateObj = new Date(visitDate);
@@ -114,18 +115,10 @@ export function convertTimeSelectionToUTC(visitDate: string, startTime: string):
   
   switch (startTime) {
     case 'now':
-      // For "now", use current Philippine time rounded up to next 15 minutes
+      // For "now", use current Philippine time immediately (no rounding)
       const nowPH = nowInPhilippineTime();
-      const currentMinutes = nowPH.getMinutes();
-      const roundedMinutes = Math.ceil(currentMinutes / 15) * 15;
-      
-      if (roundedMinutes >= 60) {
-        hours = nowPH.getHours() + 1;
-        minutes = 0;
-      } else {
-        hours = nowPH.getHours();
-        minutes = roundedMinutes;
-      }
+      hours = nowPH.getHours();
+      minutes = nowPH.getMinutes();
       
       // Use today's date for "now"
       visitDateObj = new Date();
