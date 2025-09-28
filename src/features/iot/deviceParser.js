@@ -70,23 +70,30 @@ class DeviceParser {
             other: []
         };
 
-        entities.forEach(entity => {
-            const domain = entity.entity_id.split('.')[0];
-            const deviceInfo = this.parseDevice(entity);
-            
-            // Find the right category for this domain
-            let categorized_flag = false;
-            for (const [category, domains] of Object.entries(this.categories)) {
-                if (domains.includes(domain)) {
-                    categorized[category].push(deviceInfo);
-                    categorized_flag = true;
-                    break;
+        // Group entities by base device name to consolidate related entities
+        const deviceGroups = this.groupRelatedEntities(entities);
+        
+        // Process each group and pick the primary entity
+        deviceGroups.forEach(group => {
+            const primaryEntity = this.selectPrimaryEntity(group);
+            if (primaryEntity) {
+                const domain = primaryEntity.entity_id.split('.')[0];
+                const deviceInfo = this.parseDevice(primaryEntity);
+                
+                // Find the right category for this domain
+                let categorized_flag = false;
+                for (const [category, domains] of Object.entries(this.categories)) {
+                    if (domains.includes(domain)) {
+                        categorized[category].push(deviceInfo);
+                        categorized_flag = true;
+                        break;
+                    }
                 }
-            }
-            
-            // If no category matched, put in 'other'
-            if (!categorized_flag) {
-                categorized.other.push(deviceInfo);
+                
+                // If no category matched, put in 'other'
+                if (!categorized_flag) {
+                    categorized.other.push(deviceInfo);
+                }
             }
         });
 
@@ -98,6 +105,107 @@ class DeviceParser {
         });
 
         return categorized;
+    }
+
+    /**
+     * Group related entities by their base device name
+     * @param {Array} entities - Raw entities from Home Assistant
+     * @returns {Array} Array of entity groups
+     */
+    groupRelatedEntities(entities) {
+        const groups = new Map();
+        
+        entities.forEach(entity => {
+            const baseName = this.extractBaseDeviceName(entity.entity_id);
+            
+            if (!groups.has(baseName)) {
+                groups.set(baseName, []);
+            }
+            
+            groups.get(baseName).push(entity);
+        });
+        
+        return Array.from(groups.values());
+    }
+
+    /**
+     * Extract base device name from entity ID
+     * @param {string} entityId - Entity ID like 'switch.smart_plug_led'
+     * @returns {string} Base name like 'smart_plug'
+     */
+    extractBaseDeviceName(entityId) {
+        const [domain, name] = entityId.split('.');
+        
+        // Remove common suffixes to group related entities
+        const suffixesToRemove = [
+            '_led', '_indicator', '_status', '_enabled', '_config',
+            '_auto_off_enabled', '_auto_update_enabled', '_restart',
+            '_identify', '_update_available', '_battery', '_rssi',
+            '_linkquality', '_voltage', '_current', '_power', '_energy',
+            '_temperature', '_humidity', '_pressure', '_illuminance'
+        ];
+        
+        let baseName = name;
+        
+        // Remove suffixes to find the base device name
+        for (const suffix of suffixesToRemove) {
+            if (baseName.endsWith(suffix)) {
+                baseName = baseName.substring(0, baseName.length - suffix.length);
+                break;
+            }
+        }
+        
+        return `${domain}.${baseName}`;
+    }
+
+    /**
+     * Select the primary entity from a group of related entities
+     * @param {Array} entityGroup - Group of related entities
+     * @returns {Object|null} Primary entity or null
+     */
+    selectPrimaryEntity(entityGroup) {
+        if (entityGroup.length === 0) {
+            return null;
+        }
+        
+        if (entityGroup.length === 1) {
+            return entityGroup[0];
+        }
+        
+        // Priority order for selecting primary entity
+        const domainPriority = {
+            'switch': 10,      // Main switches are high priority
+            'light': 9,        // Lights are high priority
+            'climate': 8,      // Climate controls
+            'fan': 7,          // Fans
+            'cover': 6,        // Covers/blinds
+            'lock': 6,         // Locks
+            'media_player': 5, // Media players
+            'camera': 5,       // Cameras
+            'vacuum': 5,       // Vacuum cleaners
+            'sensor': 2,       // Sensors are lower priority
+            'binary_sensor': 1 // Binary sensors are lowest priority
+        };
+        
+        // Sort by priority and select the highest priority entity
+        const sortedEntities = entityGroup.sort((a, b) => {
+            const domainA = a.entity_id.split('.')[0];
+            const domainB = b.entity_id.split('.')[0];
+            const priorityA = domainPriority[domainA] || 0;
+            const priorityB = domainPriority[domainB] || 0;
+            
+            if (priorityA !== priorityB) {
+                return priorityB - priorityA; // Higher priority first
+            }
+            
+            // If same domain priority, prefer simpler names (less underscores = main entity)
+            const underscoreCountA = (a.entity_id.match(/_/g) || []).length;
+            const underscoreCountB = (b.entity_id.match(/_/g) || []).length;
+            
+            return underscoreCountA - underscoreCountB; // Fewer underscores first
+        });
+        
+        return sortedEntities[0];
     }
 
     /**
